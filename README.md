@@ -218,8 +218,8 @@ if (input.gamepad(1)) |pad| try pad.update();
   - `resetAll`
   - `remove`
   - `actionCount`
-  - `copyActions`
-  - `replaceActions`
+  - `exportBindings`
+  - `importBindings`
   - `actionCodes`
   - `action2d`
   - `findConflict`
@@ -250,40 +250,40 @@ try bindings.set("jump", &.{ .key_j, .gamepad_face_south }, null);
 try bindings.reset("jump", &defaults);
 ```
 
-For save/load, copy the current actions into plain `Action` values:
+For save/load, export the current bindings into plain `ActionBinding` values.
+The examples below serialize those values to JSON:
 
 ```zig
-var saved: [input_lib.action_map.max_actions]input_lib.Action = undefined;
-const count = bindings.copyActions(saved[0..]);
+var saved: [input_lib.action_map.max_actions]input_lib.ActionBinding = undefined;
+const count = bindings.exportBindings(saved[0..]);
 
 var i: usize = 0;
 while (i < count) : (i += 1) {
-    const action = saved[i];
-    const name = std.mem.sliceTo(action.name[0..], 0);
+    const binding = saved[i];
 
-    if (action.kind == .codes) {
-        for (action.codes[0..action.code_count]) |code| {
+    if (binding.codes) |codes| {
+        for (codes) |code| {
             const token = input_lib.inputCodeName(code) orelse "unknown";
             _ = token;
         }
     }
 
-    if (action.kind == .axis_2d) {
-        for (action.left_codes[0..action.left_count]) |code| {
+    if (binding.left) |codes| {
+        for (codes) |code| {
             const token = input_lib.inputCodeName(code) orelse "unknown";
             _ = token;
         }
     }
 
-    _ = name;
+    _ = binding.name;
 }
 ```
 
-Load by rebuilding an `Action` array and replacing the map contents:
+Load by parsing saved data back into `ActionBinding` values:
 
 ```zig
-var loaded = [_]input_lib.Action{ /* parsed from disk */ };
-try bindings.replaceActions(loaded[0..]);
+var loaded = [_]input_lib.ActionBinding{ /* parsed from disk */ };
+try bindings.importBindings(loaded[0..]);
 ```
 
 For a keybinding GUI, inspect one action by name:
@@ -346,6 +346,23 @@ For a larger consumer-facing setup, see
 zig build example-player
 ```
 
+Two save/load examples use JSON on disk:
+
+- `examples/save_action_map.zig` writes the current action map to
+  `action_bindings.json` as a plain JSON array of `ActionBinding` objects.
+- `examples/load_action_map_debug.zig` loads `action_bindings.json` when it
+  exists, otherwise uses hard-coded defaults, then displays every action and
+  its current state. On Wayland it opens the same focused helper window as
+  `debug-input` so keyboard and mouse actions can be tested normally.
+
+```sh
+zig build example-save-action-map
+./zig-out/bin/save-action-map
+
+zig build example-load-action-map-debug
+./zig-out/bin/load-action-map-debug
+```
+
 ## Debug viewer
 
 There is one debug viewer executable:
@@ -386,8 +403,9 @@ Hyprland.
 ## Platform notes
 
 - Linux uses runtime detection and cached backend selection.
-- Wayland global polling currently returns `error.WaylandGlobalPollingUnsupported`;
-  the debug viewer uses a focused Wayland window instead.
+- Wayland does not allow global keyboard/mouse polling. The default keyboard and
+  mouse update path is a no-op on Wayland; `debug-input` uses a focused Wayland
+  window when it needs live keyboard and mouse state.
 - Windows gamepad polling uses XInput slots.
 - Linux gamepad polling uses `/dev/input/jsN` when the current user can open the
   joystick device. It does not require root and treats inaccessible devices as

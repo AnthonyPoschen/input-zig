@@ -15,15 +15,19 @@ const window_width = 640;
 const window_height = 360;
 const buffer_stride = window_width * 4;
 const buffer_size = buffer_stride * window_height;
+const max_focused_keys = 256;
+const max_focused_mouse_buttons = 16;
 
 const KeyProbe = struct {
     label: []const u8,
     keysym: u32,
+    code: input.InputCode,
 };
 
 const MouseProbe = struct {
     label: []const u8,
     button: u32,
+    code: input.InputCode,
 };
 
 const GamepadProbe = struct {
@@ -32,30 +36,30 @@ const GamepadProbe = struct {
 };
 
 const key_probes = [_]KeyProbe{
-    .{ .label = "W", .keysym = c.XKB_KEY_w },
-    .{ .label = "A", .keysym = c.XKB_KEY_a },
-    .{ .label = "S", .keysym = c.XKB_KEY_s },
-    .{ .label = "D", .keysym = c.XKB_KEY_d },
-    .{ .label = "Space", .keysym = c.XKB_KEY_space },
-    .{ .label = "Escape", .keysym = c.XKB_KEY_Escape },
-    .{ .label = "Left Shift", .keysym = c.XKB_KEY_Shift_L },
-    .{ .label = "Right Shift", .keysym = c.XKB_KEY_Shift_R },
-    .{ .label = "Left Ctrl", .keysym = c.XKB_KEY_Control_L },
-    .{ .label = "Right Ctrl", .keysym = c.XKB_KEY_Control_R },
-    .{ .label = "Left Alt", .keysym = c.XKB_KEY_Alt_L },
-    .{ .label = "Right Alt", .keysym = c.XKB_KEY_Alt_R },
-    .{ .label = "Left", .keysym = c.XKB_KEY_Left },
-    .{ .label = "Right", .keysym = c.XKB_KEY_Right },
-    .{ .label = "Up", .keysym = c.XKB_KEY_Up },
-    .{ .label = "Down", .keysym = c.XKB_KEY_Down },
+    .{ .label = "W", .keysym = c.XKB_KEY_w, .code = .key_w },
+    .{ .label = "A", .keysym = c.XKB_KEY_a, .code = .key_a },
+    .{ .label = "S", .keysym = c.XKB_KEY_s, .code = .key_s },
+    .{ .label = "D", .keysym = c.XKB_KEY_d, .code = .key_d },
+    .{ .label = "Space", .keysym = c.XKB_KEY_space, .code = .key_space },
+    .{ .label = "Escape", .keysym = c.XKB_KEY_Escape, .code = .key_escape },
+    .{ .label = "Left Shift", .keysym = c.XKB_KEY_Shift_L, .code = .key_shift_left },
+    .{ .label = "Right Shift", .keysym = c.XKB_KEY_Shift_R, .code = .key_shift_right },
+    .{ .label = "Left Ctrl", .keysym = c.XKB_KEY_Control_L, .code = .key_control_left },
+    .{ .label = "Right Ctrl", .keysym = c.XKB_KEY_Control_R, .code = .key_control_right },
+    .{ .label = "Left Alt", .keysym = c.XKB_KEY_Alt_L, .code = .key_alt_left },
+    .{ .label = "Right Alt", .keysym = c.XKB_KEY_Alt_R, .code = .key_alt_right },
+    .{ .label = "Left", .keysym = c.XKB_KEY_Left, .code = .key_left },
+    .{ .label = "Right", .keysym = c.XKB_KEY_Right, .code = .key_right },
+    .{ .label = "Up", .keysym = c.XKB_KEY_Up, .code = .key_up },
+    .{ .label = "Down", .keysym = c.XKB_KEY_Down, .code = .key_down },
 };
 
 const mouse_probes = [_]MouseProbe{
-    .{ .label = "Left", .button = 0x110 },
-    .{ .label = "Right", .button = 0x111 },
-    .{ .label = "Middle", .button = 0x112 },
-    .{ .label = "Button4", .button = 0x113 },
-    .{ .label = "Button5", .button = 0x114 },
+    .{ .label = "Left", .button = 0x110, .code = .mouse_left },
+    .{ .label = "Right", .button = 0x111, .code = .mouse_right },
+    .{ .label = "Middle", .button = 0x112, .code = .mouse_middle },
+    .{ .label = "Button4", .button = 0x113, .code = .mouse_button4 },
+    .{ .label = "Button5", .button = 0x114, .code = .mouse_button5 },
 };
 
 const gamepad_probes = [_]GamepadProbe{
@@ -93,6 +97,11 @@ const Config = struct {
     frame_limit: ?usize = null,
 };
 
+pub const FocusState = struct {
+    keyboard: bool,
+    pointer: bool,
+};
+
 const App = struct {
     display: ?*c.wl_display = null,
     registry: ?*c.wl_registry = null,
@@ -123,6 +132,8 @@ const App = struct {
     pointer_position_initialized: bool = false,
     scroll_delta_x: f64 = 0,
     scroll_delta_y: f64 = 0,
+    focused_keys: [max_focused_keys]bool = [_]bool{false} ** max_focused_keys,
+    focused_mouse_buttons: [max_focused_mouse_buttons]bool = [_]bool{false} ** max_focused_mouse_buttons,
     key_states: [key_probes.len]KeyState = [_]KeyState{.{}} ** key_probes.len,
     button_states: [mouse_probes.len]ButtonState = [_]ButtonState{.{}} ** mouse_probes.len,
     input_state: input.InputSystem = .{},
@@ -285,10 +296,48 @@ const App = struct {
         for (&self.button_states) |*state| {
             state.prev_down = state.down;
         }
+
+        const keyboard = self.input_state.keyboard();
+        keyboard.prev_keys = keyboard.keys;
+
+        const mouse = self.input_state.mouse();
+        mouse.prev_buttons = mouse.buttons;
+        mouse.raw_delta = .{ .x = 0, .y = 0 };
+        mouse.scroll_delta = .{ .x = 0, .y = 0 };
+
         self.pointer_delta_x = 0;
         self.pointer_delta_y = 0;
         self.scroll_delta_x = 0;
         self.scroll_delta_y = 0;
+    }
+
+    fn syncFocusedDevices(self: *App) void {
+        const keyboard = self.input_state.keyboard();
+        @memset(keyboard.keys[0..], .up);
+        for (self.focused_keys, 0..) |down, index| {
+            if (!down or index >= keyboard.keys.len) continue;
+            keyboard.keys[index] = .down;
+        }
+
+        const mouse = self.input_state.mouse();
+        @memset(mouse.buttons[0..], .up);
+        for (self.focused_mouse_buttons, 0..) |down, index| {
+            if (!down or index >= mouse.buttons.len) continue;
+            mouse.buttons[index] = .down;
+        }
+
+        mouse.setRawPosition(.{
+            .x = @floatCast(self.pointer_x),
+            .y = @floatCast(self.pointer_y),
+        }, .window_local);
+        mouse.raw_delta = .{
+            .x = @floatCast(self.pointer_delta_x),
+            .y = @floatCast(self.pointer_delta_y),
+        };
+        mouse.addScrollDelta(.{
+            .x = @floatCast(self.scroll_delta_x),
+            .y = @floatCast(self.scroll_delta_y),
+        });
     }
 
     fn updateGamepads(self: *App) !void {
@@ -414,6 +463,134 @@ const App = struct {
     }
 };
 
+fn mouseIndex(code: input.InputCode) ?usize {
+    return switch (code) {
+        .mouse_left => 0,
+        .mouse_right => 1,
+        .mouse_middle => 2,
+        .mouse_button4 => 3,
+        .mouse_button5 => 4,
+        else => null,
+    };
+}
+
+fn keysymToInputCode(sym: u32) ?input.InputCode {
+    return switch (sym) {
+        c.XKB_KEY_BackSpace => .key_backspace,
+        c.XKB_KEY_Tab => .key_tab,
+        c.XKB_KEY_Return => .key_enter,
+        c.XKB_KEY_Pause => .key_pause,
+        c.XKB_KEY_Caps_Lock => .key_caps_lock,
+        c.XKB_KEY_Escape => .key_escape,
+        c.XKB_KEY_space => .key_space,
+        c.XKB_KEY_Page_Up => .key_page_up,
+        c.XKB_KEY_Page_Down => .key_page_down,
+        c.XKB_KEY_End => .key_end,
+        c.XKB_KEY_Home => .key_home,
+        c.XKB_KEY_Left => .key_left,
+        c.XKB_KEY_Up => .key_up,
+        c.XKB_KEY_Right => .key_right,
+        c.XKB_KEY_Down => .key_down,
+        c.XKB_KEY_Print => .key_print_screen,
+        c.XKB_KEY_Insert => .key_insert,
+        c.XKB_KEY_Delete => .key_delete,
+        c.XKB_KEY_Super_L => .key_super_left,
+        c.XKB_KEY_Super_R => .key_super_right,
+        c.XKB_KEY_Menu => .key_menu,
+        c.XKB_KEY_Num_Lock => .key_num_lock,
+        c.XKB_KEY_Scroll_Lock => .key_scroll_lock,
+        c.XKB_KEY_Shift_L => .key_shift_left,
+        c.XKB_KEY_Shift_R => .key_shift_right,
+        c.XKB_KEY_Control_L => .key_control_left,
+        c.XKB_KEY_Control_R => .key_control_right,
+        c.XKB_KEY_Alt_L => .key_alt_left,
+        c.XKB_KEY_Alt_R => .key_alt_right,
+        c.XKB_KEY_F1 => .key_f1,
+        c.XKB_KEY_F2 => .key_f2,
+        c.XKB_KEY_F3 => .key_f3,
+        c.XKB_KEY_F4 => .key_f4,
+        c.XKB_KEY_F5 => .key_f5,
+        c.XKB_KEY_F6 => .key_f6,
+        c.XKB_KEY_F7 => .key_f7,
+        c.XKB_KEY_F8 => .key_f8,
+        c.XKB_KEY_F9 => .key_f9,
+        c.XKB_KEY_F10 => .key_f10,
+        c.XKB_KEY_F11 => .key_f11,
+        c.XKB_KEY_F12 => .key_f12,
+        c.XKB_KEY_F13 => .key_f13,
+        c.XKB_KEY_F14 => .key_f14,
+        c.XKB_KEY_F15 => .key_f15,
+        c.XKB_KEY_F16 => .key_f16,
+        c.XKB_KEY_F17 => .key_f17,
+        c.XKB_KEY_F18 => .key_f18,
+        c.XKB_KEY_F19 => .key_f19,
+        c.XKB_KEY_F20 => .key_f20,
+        c.XKB_KEY_F21 => .key_f21,
+        c.XKB_KEY_F22 => .key_f22,
+        c.XKB_KEY_F23 => .key_f23,
+        c.XKB_KEY_F24 => .key_f24,
+        c.XKB_KEY_KP_0 => .key_numpad_0,
+        c.XKB_KEY_KP_1 => .key_numpad_1,
+        c.XKB_KEY_KP_2 => .key_numpad_2,
+        c.XKB_KEY_KP_3 => .key_numpad_3,
+        c.XKB_KEY_KP_4 => .key_numpad_4,
+        c.XKB_KEY_KP_5 => .key_numpad_5,
+        c.XKB_KEY_KP_6 => .key_numpad_6,
+        c.XKB_KEY_KP_7 => .key_numpad_7,
+        c.XKB_KEY_KP_8 => .key_numpad_8,
+        c.XKB_KEY_KP_9 => .key_numpad_9,
+        c.XKB_KEY_KP_Multiply => .key_numpad_multiply,
+        c.XKB_KEY_KP_Add => .key_numpad_add,
+        c.XKB_KEY_KP_Subtract => .key_numpad_subtract,
+        c.XKB_KEY_KP_Decimal => .key_numpad_decimal,
+        c.XKB_KEY_KP_Divide => .key_numpad_divide,
+        c.XKB_KEY_0 => .key_0,
+        c.XKB_KEY_1 => .key_1,
+        c.XKB_KEY_2 => .key_2,
+        c.XKB_KEY_3 => .key_3,
+        c.XKB_KEY_4 => .key_4,
+        c.XKB_KEY_5 => .key_5,
+        c.XKB_KEY_6 => .key_6,
+        c.XKB_KEY_7 => .key_7,
+        c.XKB_KEY_8 => .key_8,
+        c.XKB_KEY_9 => .key_9,
+        c.XKB_KEY_a, c.XKB_KEY_A => .key_a,
+        c.XKB_KEY_b, c.XKB_KEY_B => .key_b,
+        c.XKB_KEY_c, c.XKB_KEY_C => .key_c,
+        c.XKB_KEY_d, c.XKB_KEY_D => .key_d,
+        c.XKB_KEY_e, c.XKB_KEY_E => .key_e,
+        c.XKB_KEY_f, c.XKB_KEY_F => .key_f,
+        c.XKB_KEY_g, c.XKB_KEY_G => .key_g,
+        c.XKB_KEY_h, c.XKB_KEY_H => .key_h,
+        c.XKB_KEY_i, c.XKB_KEY_I => .key_i,
+        c.XKB_KEY_j, c.XKB_KEY_J => .key_j,
+        c.XKB_KEY_k, c.XKB_KEY_K => .key_k,
+        c.XKB_KEY_l, c.XKB_KEY_L => .key_l,
+        c.XKB_KEY_m, c.XKB_KEY_M => .key_m,
+        c.XKB_KEY_n, c.XKB_KEY_N => .key_n,
+        c.XKB_KEY_o, c.XKB_KEY_O => .key_o,
+        c.XKB_KEY_p, c.XKB_KEY_P => .key_p,
+        c.XKB_KEY_q, c.XKB_KEY_Q => .key_q,
+        c.XKB_KEY_r, c.XKB_KEY_R => .key_r,
+        c.XKB_KEY_s, c.XKB_KEY_S => .key_s,
+        c.XKB_KEY_t, c.XKB_KEY_T => .key_t,
+        c.XKB_KEY_u, c.XKB_KEY_U => .key_u,
+        c.XKB_KEY_v, c.XKB_KEY_V => .key_v,
+        c.XKB_KEY_w, c.XKB_KEY_W => .key_w,
+        c.XKB_KEY_x, c.XKB_KEY_X => .key_x,
+        c.XKB_KEY_y, c.XKB_KEY_Y => .key_y,
+        c.XKB_KEY_z, c.XKB_KEY_Z => .key_z,
+        else => null,
+    };
+}
+
+fn waylandPointerButtonIndex(button: u32) ?usize {
+    if (button < 0x110) return null;
+    const index: usize = @intCast(button - 0x110);
+    if (index >= max_focused_mouse_buttons) return null;
+    return index;
+}
+
 /// Run a native Wayland focused-window debug viewer.
 pub fn run(frame_limit: ?usize) !void {
     var stdout_buffer: [16384]u8 = undefined;
@@ -440,6 +617,7 @@ pub fn run(frame_limit: ?usize) !void {
             try stderr_writer.flush();
             return err;
         };
+        app.syncFocusedDevices();
         app.updateGamepads() catch |err| {
             try stdout_writer.flush();
             try renderError(stderr_writer, err);
@@ -448,6 +626,59 @@ pub fn run(frame_limit: ?usize) !void {
         };
 
         try app.render(stdout_writer, frame_limit);
+        try stdout_writer.flush();
+
+        frame_count += 1;
+        if (frame_limit) |limit| {
+            if (frame_count >= limit) return;
+        }
+
+        std.Thread.sleep(frame_time_ns);
+    }
+}
+
+pub fn runFocusedInput(
+    comptime Context: type,
+    context: *Context,
+    frame_limit: ?usize,
+    comptime render: fn (*Context, *input.InputSystem, FocusState, *std.Io.Writer, ?usize) anyerror!void,
+) !void {
+    var stdout_buffer: [16384]u8 = undefined;
+    var stderr_buffer: [1024]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&stdout_buffer);
+    var stderr = std.fs.File.stderr().writer(&stderr_buffer);
+    var stdout_writer = &stdout.interface;
+    var stderr_writer = &stderr.interface;
+    var app = App{};
+    var frame_count: usize = 0;
+
+    app.init() catch |err| {
+        try renderError(stderr_writer, err);
+        try stderr_writer.flush();
+        return err;
+    };
+    defer app.deinit();
+
+    while (app.running) {
+        app.beginFrame();
+        app.pumpEvents() catch |err| {
+            try stdout_writer.flush();
+            try renderError(stderr_writer, err);
+            try stderr_writer.flush();
+            return err;
+        };
+        app.syncFocusedDevices();
+        app.updateGamepads() catch |err| {
+            try stdout_writer.flush();
+            try renderError(stderr_writer, err);
+            try stderr_writer.flush();
+            return err;
+        };
+
+        try render(context, &app.input_state, .{
+            .keyboard = app.keyboard_focus,
+            .pointer = app.pointer_focus,
+        }, stdout_writer, frame_limit);
         try stdout_writer.flush();
 
         frame_count += 1;
@@ -492,7 +723,7 @@ fn parseConfig() !Config {
 
 /// Print setup or runtime failures in plain language.
 fn renderError(writer: *std.Io.Writer, err: anyerror) !void {
-    try writer.print("debug-input-wayland failed with {s}\n", .{@errorName(err)});
+    try writer.print("wayland focused input failed with {s}\n", .{@errorName(err)});
 
     switch (err) {
         error.WaylandConnectFailed => {
@@ -640,6 +871,11 @@ fn pointerEnter(data: ?*anyopaque, _: ?*c.wl_pointer, _: u32, _: ?*c.wl_surface,
 fn pointerLeave(data: ?*anyopaque, _: ?*c.wl_pointer, _: u32, _: ?*c.wl_surface) callconv(.c) void {
     const app: *App = @ptrCast(@alignCast(data.?));
     app.pointer_focus = false;
+    @memset(app.focused_mouse_buttons[0..], false);
+
+    for (&app.button_states) |*state| {
+        state.down = false;
+    }
 }
 
 /// Update the pointer coordinates within the focused surface.
@@ -662,10 +898,15 @@ fn pointerMotion(data: ?*anyopaque, _: ?*c.wl_pointer, _: u32, surface_x: c.wl_f
 /// Record mouse button transitions while the window has pointer focus.
 fn pointerButton(data: ?*anyopaque, _: ?*c.wl_pointer, _: u32, _: u32, button: u32, state: u32) callconv(.c) void {
     const app: *App = @ptrCast(@alignCast(data.?));
+    const down = state == c.WL_POINTER_BUTTON_STATE_PRESSED;
+
+    if (waylandPointerButtonIndex(button)) |index| {
+        app.focused_mouse_buttons[index] = down;
+    }
 
     for (mouse_probes, 0..) |probe, idx| {
         if (probe.button != button) continue;
-        app.button_states[idx].down = state == c.WL_POINTER_BUTTON_STATE_PRESSED;
+        app.button_states[idx].down = down;
         return;
     }
 }
@@ -735,6 +976,7 @@ fn keyboardEnter(data: ?*anyopaque, _: ?*c.wl_keyboard, _: u32, _: ?*c.wl_surfac
     const app: *App = @ptrCast(@alignCast(data.?));
     app.keyboard_focus = true;
 
+    @memset(app.focused_keys[0..], false);
     for (&app.key_states) |*state| {
         state.down = false;
     }
@@ -753,6 +995,7 @@ fn keyboardLeave(data: ?*anyopaque, _: ?*c.wl_keyboard, _: u32, _: ?*c.wl_surfac
     const app: *App = @ptrCast(@alignCast(data.?));
     app.keyboard_focus = false;
 
+    @memset(app.focused_keys[0..], false);
     for (&app.key_states) |*state| {
         state.down = false;
     }
@@ -788,6 +1031,11 @@ fn updateKeyProbeStates(app: *App, keycode: u32, down: bool) void {
     if (app.xkb_state == null) return;
 
     const sym = c.xkb_state_key_get_one_sym(app.xkb_state, keycode);
+    if (keysymToInputCode(sym)) |code| {
+        const index: usize = @intFromEnum(code);
+        if (index < app.focused_keys.len) app.focused_keys[index] = down;
+    }
+
     for (key_probes, 0..) |probe, idx| {
         if (probe.keysym == sym) {
             app.key_states[idx].down = down;

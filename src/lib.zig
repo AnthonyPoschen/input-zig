@@ -1,7 +1,7 @@
 const input = @import("input.zig");
 
 pub const action_map = input.action_map;
-pub const Action = input.Action;
+pub const ActionBinding = input.ActionBinding;
 pub const ActionKind = input.ActionKind;
 pub const ActionMap = input.ActionMap;
 pub const Action2dBinding = input.Action2dBinding;

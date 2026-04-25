@@ -281,14 +281,6 @@ fn renderError(writer: anytype, err: anyerror) !void {
     try writer.print("debug-input failed with {s}\n", .{@errorName(err)});
 
     switch (err) {
-        error.WaylandGlobalPollingUnsupported => {
-            try writer.writeAll(
-                "Wayland global input polling is not implemented yet.\n",
-            );
-            try writer.writeAll(
-                "The debug viewer uses the default backend for the current environment.\n",
-            );
-        },
         error.NoDisplayServer => {
             try writer.writeAll(
                 "No supported display server was detected for global polling.\n",

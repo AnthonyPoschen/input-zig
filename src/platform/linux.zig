@@ -181,7 +181,7 @@ pub fn updateKeyboard(keyboard: *device.KeyboardDevice) !void {
                 }
             }
         },
-        .wayland => return error.WaylandGlobalPollingUnsupported,
+        .wayland => {},
         .none => return error.NoDisplayServer,
     }
 }
@@ -213,7 +213,7 @@ pub fn updateMouse(mouse: *device.MouseDevice) !void {
                 mouse.buttons[4] = if ((mask & c.Button5Mask) != 0) .down else .up;
             }
         },
-        .wayland => return error.WaylandGlobalPollingUnsupported,
+        .wayland => {},
         .none => return error.NoDisplayServer,
     }
 }
