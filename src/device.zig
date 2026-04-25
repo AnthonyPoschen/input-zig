@@ -23,6 +23,9 @@ pub const GamepadDevice = gamepad.GamepadDevice;
 pub const GamepadIdentity = gamepad.GamepadIdentity;
 pub const GamepadStick = gamepad.GamepadStick;
 pub const InputCode = input_code.InputCode;
+pub const inputCodeLabel = input_code.inputCodeLabel;
+pub const inputCodeName = input_code.inputCodeName;
+pub const parseInputCode = input_code.parseInputCode;
 pub const KeyboardDevice = keyboard.KeyboardDevice;
 pub const MouseCoordinateSpace = mouse.MouseCoordinateSpace;
 pub const MouseDevice = mouse.MouseDevice;
@@ -38,6 +41,13 @@ test "mouse position subtracts window origin for global coordinates" {
 
     try std.testing.expectEqual(@as(f32, 220), pos.x);
     try std.testing.expectEqual(@as(f32, 140), pos.y);
+}
+
+test "input code helpers provide stable names labels and parsing" {
+    try std.testing.expectEqualStrings("key_space", inputCodeName(.key_space).?);
+    try std.testing.expectEqualStrings("Space", inputCodeLabel(.key_space).?);
+    try std.testing.expectEqual(InputCode.key_space, parseInputCode("key_space").?);
+    try std.testing.expect(parseInputCode("space") == null);
 }
 
 test "mouse position returns raw global coordinates without window rect" {

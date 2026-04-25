@@ -15,9 +15,15 @@ pub const WindowRect = device.WindowRect;
 pub const InputCode = device.InputCode;
 pub const Backend = @import("platform/mod.zig").Backend;
 pub const selectedBackend = @import("platform/mod.zig").selectedBackend;
+pub const Action = action_map.Action;
+pub const ActionKind = action_map.ActionKind;
 pub const ActionMap = action_map.ActionMap;
-pub const Axis2dCompositeOptions = action_map.Axis2dCompositeOptions;
-pub const Digital2dBinding = action_map.Digital2dBinding;
+pub const Action2dBinding = action_map.Action2dBinding;
+pub const BindingConflict = action_map.BindingConflict;
+pub const BindingSlot = action_map.BindingSlot;
+pub const inputCodeLabel = device.inputCodeLabel;
+pub const inputCodeName = device.inputCodeName;
+pub const parseInputCode = device.parseInputCode;
 
 pub const InputSystem = struct {
     keyboard_device: KeyboardDevice = .{},

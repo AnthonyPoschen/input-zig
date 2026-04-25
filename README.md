@@ -132,14 +132,13 @@ Action maps can also read action values:
 try actions.set("forward", &.{ .key_w, .gamepad_left_stick_up }, .{
     .axis_button_threshold = 0.35,
 });
-try actions.set2dComposite("move", .{
-    .left = .key_a,
-    .right = .key_d,
-    .up = .key_w,
-    .down = .key_s,
-}, &.{.gamepad_left_stick}, .{
-    .normalize = true,
-});
+try actions.set2d("move", .{
+    .left = &.{.key_a},
+    .right = &.{.key_d},
+    .up = &.{.key_w},
+    .down = &.{.key_s},
+    .vectors = &.{.gamepad_left_stick},
+}, null);
 
 if (actions.down(&input, "forward")) {
     // W is held or the stick is pushed forward past the button threshold.
@@ -152,10 +151,10 @@ const move = actions.axis2d(&input, "move");
 `axis1d` and `axis2d` ignore incompatible codes and add compatible values
 together, clamping the final result to `[-1, 1]`.
 
-`set2dComposite` is the cleaner path for movement-style actions that combine a
-digital four-way source such as `WASD` with one or more analog 2D sources such
-as `.gamepad_left_stick`. It merges them into one `Axis2d` and can normalize
-the final vector length back to `1`.
+`set2d` is the cleaner path for movement-style actions that combine one or more
+four-way digital sources such as `WASD` with vector sources such as
+`.gamepad_left_stick`. It merges them into one `Axis2d` and clamps each final
+component to `[-1, 1]`.
 
 When `down`, `pressed`, or `released` checks an axis code, it uses the action's
 `axis_button_threshold`. The default threshold is `0.5`.
@@ -200,23 +199,117 @@ if (input.gamepad(1)) |pad| try pad.update();
 
 - action maps attach one or more devices
 - `set(name, codes, options)` creates or replaces an action
-- `set2dComposite(name, digital, analog_codes, options)` creates or replaces a
-  composite 2D action
+- `set2d(name, binding, options)` creates or replaces a 2D action
 - `set(name, null, options)` disables/unbinds an action
-- `reset(name)` restores the last non-null default codes
+- `reset(name, defaults)` restores one action from a separate default map
+- `resetAll(defaults)` replaces all actions with a separate default map
+- `findConflict(code, ignore_action)` finds the first action already using an
+  `InputCode`
+- `inputCodeName(code)` returns a stable config token such as `key_space`
+- `inputCodeLabel(code)` returns a GUI label such as `Space`
+- `parseInputCode(name)` parses stable config tokens back into `InputCode`
 - `remove(name)` deletes the action
 - functions:
   - `attachDevice`
   - `detachDevice`
   - `set`
-  - `set2dComposite`
+  - `set2d`
   - `reset`
   - `resetAll`
   - `remove`
+  - `actionCount`
+  - `copyActions`
+  - `replaceActions`
+  - `actionCodes`
+  - `action2d`
+  - `findConflict`
   - `down`
   - `up`
   - `pressed`
   - `released`
+
+A game can keep hard-coded defaults separate from user-editable bindings:
+
+```zig
+var defaults = input_lib.ActionMap.init();
+try defaults.set("jump", &.{ .key_space, .gamepad_face_south }, null);
+try defaults.set2d("move", .{
+    .left = &.{.key_a},
+    .right = &.{.key_d},
+    .up = &.{.key_w},
+    .down = &.{.key_s},
+    .vectors = &.{.gamepad_left_stick},
+}, null);
+
+var bindings = defaults;
+try bindings.attachDevice(input.keyboard());
+try bindings.attachDevice(input.mouse());
+if (input.gamepad(0)) |pad| try bindings.attachDevice(pad);
+
+try bindings.set("jump", &.{ .key_j, .gamepad_face_south }, null);
+try bindings.reset("jump", &defaults);
+```
+
+For save/load, copy the current actions into plain `Action` values:
+
+```zig
+var saved: [input_lib.action_map.max_actions]input_lib.Action = undefined;
+const count = bindings.copyActions(saved[0..]);
+
+var i: usize = 0;
+while (i < count) : (i += 1) {
+    const action = saved[i];
+    const name = std.mem.sliceTo(action.name[0..], 0);
+
+    if (action.kind == .codes) {
+        for (action.codes[0..action.code_count]) |code| {
+            const token = input_lib.inputCodeName(code) orelse "unknown";
+            _ = token;
+        }
+    }
+
+    if (action.kind == .axis_2d) {
+        for (action.left_codes[0..action.left_count]) |code| {
+            const token = input_lib.inputCodeName(code) orelse "unknown";
+            _ = token;
+        }
+    }
+
+    _ = name;
+}
+```
+
+Load by rebuilding an `Action` array and replacing the map contents:
+
+```zig
+var loaded = [_]input_lib.Action{ /* parsed from disk */ };
+try bindings.replaceActions(loaded[0..]);
+```
+
+For a keybinding GUI, inspect one action by name:
+
+```zig
+if (bindings.actionCodes("jump")) |codes| {
+    for (codes) |code| {
+        const label = input_lib.inputCodeLabel(code) orelse "Unknown";
+        _ = label;
+    }
+}
+
+if (bindings.action2d("move")) |binding| {
+    if (binding.left) |codes| {
+        for (codes) |code| {
+            const label = input_lib.inputCodeLabel(code) orelse "Unknown";
+            _ = label;
+        }
+    }
+}
+
+if (bindings.findConflict(.key_f, "interact")) |conflict| {
+    // conflict.action_name and conflict.slot identify where it is already used.
+    _ = conflict;
+}
+```
 
 ## Example
 

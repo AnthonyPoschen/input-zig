@@ -18,14 +18,13 @@ fn setupPlayerActions(input: *input_lib.InputSystem, actions: *input_lib.ActionM
     try actions.attachDevice(input.mouse());
     try actions.attachDevice(gamepad);
 
-    try actions.set2dComposite("move", .{
-        .left = .key_a,
-        .right = .key_d,
-        .up = .key_w,
-        .down = .key_s,
-    }, &.{.gamepad_left_stick}, .{
-        .normalize = true,
-    });
+    try actions.set2d("move", .{
+        .left = &.{.key_a},
+        .right = &.{.key_d},
+        .up = &.{.key_w},
+        .down = &.{.key_s},
+        .vectors = &.{.gamepad_left_stick},
+    }, null);
     try actions.set("jump", &.{
         .key_space,
         .gamepad_face_south,
