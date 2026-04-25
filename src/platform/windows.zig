@@ -138,9 +138,10 @@ pub fn updateKeyboard(keyboard: *device.KeyboardDevice) !void {
 pub fn updateMouse(mouse: *device.MouseDevice) !void {
     var point: c.POINT = undefined;
     if (c.GetCursorPos(&point) != 0) {
-        mouse.raw_position.x = @floatFromInt(point.x);
-        mouse.raw_position.y = @floatFromInt(point.y);
-        mouse.coordinate_space = .global;
+        mouse.setRawPosition(.{
+            .x = @floatFromInt(point.x),
+            .y = @floatFromInt(point.y),
+        }, .global);
     }
 
     @memset(mouse.buttons[0..], .up);

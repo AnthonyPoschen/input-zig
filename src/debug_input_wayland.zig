@@ -1,5 +1,5 @@
 const std = @import("std");
-const input = @import("input_zig");
+const input = @import("input");
 
 const c = @cImport({
     @cInclude("sys/mman.h");
@@ -79,7 +79,6 @@ const gamepad_probes = [_]GamepadProbe{
     .{ .label = "R Stick", .code = .gamepad_right_stick_press },
 };
 
-
 const KeyState = struct {
     down: bool = false,
     prev_down: bool = false,
@@ -119,8 +118,11 @@ const App = struct {
     keyboard_focus: bool = false,
     pointer_x: f64 = 0,
     pointer_y: f64 = 0,
-    scroll_x: f64 = 0,
-    scroll_y: f64 = 0,
+    pointer_delta_x: f64 = 0,
+    pointer_delta_y: f64 = 0,
+    pointer_position_initialized: bool = false,
+    scroll_delta_x: f64 = 0,
+    scroll_delta_y: f64 = 0,
     key_states: [key_probes.len]KeyState = [_]KeyState{.{}} ** key_probes.len,
     button_states: [mouse_probes.len]ButtonState = [_]ButtonState{.{}} ** mouse_probes.len,
     input_state: input.InputSystem = .{},
@@ -195,8 +197,8 @@ const App = struct {
             return error.WaylandListenerInstallFailed;
         }
 
-        c.xdg_toplevel_set_title(self.toplevel, "input-zig wayland debug");
-        c.xdg_toplevel_set_app_id(self.toplevel, "input-zig-debug");
+        c.xdg_toplevel_set_title(self.toplevel, "input wayland debug");
+        c.xdg_toplevel_set_app_id(self.toplevel, "input-debug");
         c.wl_surface_commit(self.surface);
 
         if (c.wl_display_roundtrip(self.display) < 0) {
@@ -210,7 +212,7 @@ const App = struct {
 
     /// Create a shared-memory buffer so the surface can be mapped.
     fn createBuffer(self: *App) !void {
-        const fd = try std.posix.memfd_create("input-zig-wayland", 0);
+        const fd = try std.posix.memfd_create("input-wayland", 0);
         errdefer std.posix.close(fd);
 
         try std.posix.ftruncate(fd, buffer_size);
@@ -283,6 +285,10 @@ const App = struct {
         for (&self.button_states) |*state| {
             state.prev_down = state.down;
         }
+        self.pointer_delta_x = 0;
+        self.pointer_delta_y = 0;
+        self.scroll_delta_x = 0;
+        self.scroll_delta_y = 0;
     }
 
     fn updateGamepads(self: *App) !void {
@@ -295,7 +301,7 @@ const App = struct {
     /// Render the current focused input state to stdout.
     fn render(self: *App, writer: *std.Io.Writer, frame_limit: ?usize) !void {
         try writer.writeAll("\x1b[2J\x1b[H");
-        try writer.writeAll("input-zig debug viewer\n");
+        try writer.writeAll("input debug viewer\n");
 
         if (frame_limit) |limit| {
             try writer.print("frame limit: {d}\n", .{limit});
@@ -312,9 +318,13 @@ const App = struct {
             self.pointer_x,
             self.pointer_y,
         });
-        try writer.print("scroll accum: {d:.1}, {d:.1}\n", .{
-            self.scroll_x,
-            self.scroll_y,
+        try writer.print("mouse delta:    {d:.1}, {d:.1}\n", .{
+            self.pointer_delta_x,
+            self.pointer_delta_y,
+        });
+        try writer.print("scroll delta:   {d:.1}, {d:.1}\n", .{
+            self.scroll_delta_x,
+            self.scroll_delta_y,
         });
         try writer.writeAll("mouse buttons:\n");
 
@@ -623,6 +633,7 @@ fn pointerEnter(data: ?*anyopaque, _: ?*c.wl_pointer, _: u32, _: ?*c.wl_surface,
     app.pointer_focus = true;
     app.pointer_x = c.wl_fixed_to_double(surface_x);
     app.pointer_y = c.wl_fixed_to_double(surface_y);
+    app.pointer_position_initialized = true;
 }
 
 /// Clear pointer focus when the compositor leaves the debug surface.
@@ -634,8 +645,18 @@ fn pointerLeave(data: ?*anyopaque, _: ?*c.wl_pointer, _: u32, _: ?*c.wl_surface)
 /// Update the pointer coordinates within the focused surface.
 fn pointerMotion(data: ?*anyopaque, _: ?*c.wl_pointer, _: u32, surface_x: c.wl_fixed_t, surface_y: c.wl_fixed_t) callconv(.c) void {
     const app: *App = @ptrCast(@alignCast(data.?));
-    app.pointer_x = c.wl_fixed_to_double(surface_x);
-    app.pointer_y = c.wl_fixed_to_double(surface_y);
+    const x = c.wl_fixed_to_double(surface_x);
+    const y = c.wl_fixed_to_double(surface_y);
+
+    if (app.pointer_position_initialized) {
+        app.pointer_delta_x += x - app.pointer_x;
+        app.pointer_delta_y += y - app.pointer_y;
+    } else {
+        app.pointer_position_initialized = true;
+    }
+
+    app.pointer_x = x;
+    app.pointer_y = y;
 }
 
 /// Record mouse button transitions while the window has pointer focus.
@@ -655,8 +676,8 @@ fn pointerAxis(data: ?*anyopaque, _: ?*c.wl_pointer, _: u32, axis: u32, value: c
     const delta = c.wl_fixed_to_double(value);
 
     switch (axis) {
-        c.WL_POINTER_AXIS_VERTICAL_SCROLL => app.scroll_y += delta,
-        c.WL_POINTER_AXIS_HORIZONTAL_SCROLL => app.scroll_x += delta,
+        c.WL_POINTER_AXIS_VERTICAL_SCROLL => app.scroll_delta_y += delta,
+        c.WL_POINTER_AXIS_HORIZONTAL_SCROLL => app.scroll_delta_x += delta,
         else => {},
     }
 }

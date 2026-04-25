@@ -1,4 +1,4 @@
-const input_lib = @import("input_zig");
+const input_lib = @import("input");
 
 const PlayerInput = struct {
     move_x: f32,
@@ -8,6 +8,7 @@ const PlayerInput = struct {
     aim_down: bool,
     pause_pressed: bool,
     look_stick: input_lib.Axis2d,
+    look_mouse: input_lib.Axis2d,
 };
 
 /// Configure one player-facing action map across keyboard, mouse, and gamepad.
@@ -75,6 +76,7 @@ fn samplePlayerInput(input: *input_lib.InputSystem, actions: *const input_lib.Ac
         .aim_down = actions.down(input, "aim"),
         .pause_pressed = actions.pressed(input, "pause"),
         .look_stick = actions.axis2d(input, "look_stick"),
+        .look_mouse = input.mouse().delta(),
     };
 }
 
@@ -98,10 +100,6 @@ pub fn main() !void {
 
     const player_input = samplePlayerInput(&input, &actions);
     _ = player_input;
-
-    // TODO: Mouse look wants delta, not absolute position, but ActionMap has no
-    // mouse-motion binding yet. A future example could map raw delta here.
-    // const look_mouse = input.mouse().delta();
 
     _ = sampleFrame;
 }

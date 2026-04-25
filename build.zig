@@ -34,7 +34,7 @@ fn configureWaylandDebugLinking(step: *std.Build.Step.Compile, os_tag: std.Targe
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const module = b.addModule("input_zig", .{
+    const module = b.addModule("input", .{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
@@ -71,8 +71,8 @@ pub fn build(b: *std.Build) void {
         .name = "player-action-map",
         .root_module = example_module,
     });
-    debug_module.addImport("input_zig", module);
-    example_module.addImport("input_zig", module);
+    debug_module.addImport("input", module);
+    example_module.addImport("input", module);
 
     configurePlatformLinking(tests, target.result.os.tag);
     configurePlatformLinking(debug_exe, target.result.os.tag);

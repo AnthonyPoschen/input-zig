@@ -1,5 +1,5 @@
 const std = @import("std");
-const input = @import("input_zig");
+const input = @import("input");
 const builtin = @import("builtin");
 const debug_input_wayland = @import("debug_input_wayland.zig");
 
@@ -71,7 +71,6 @@ const gamepad_probes = [_]GamepadProbe{
     .{ .label = "L Stick", .code = .gamepad_left_stick_press },
     .{ .label = "R Stick", .code = .gamepad_right_stick_press },
 };
-
 
 /// Run a terminal debug viewer that polls and prints input state.
 pub fn main() !void {
@@ -150,7 +149,7 @@ fn updateAndRender(state: *input.InputSystem, frame_limit: ?usize, writer: anyty
     }
 
     try writer.writeAll("\x1b[2J\x1b[H");
-    try writer.print("input-zig debug viewer\n", .{});
+    try writer.print("input debug viewer\n", .{});
 
     if (frame_limit) |limit| {
         try writer.print("frame limit: {d}\n\n", .{limit});
@@ -169,9 +168,19 @@ fn updateAndRender(state: *input.InputSystem, frame_limit: ?usize, writer: anyty
 /// Render mouse position and button transitions.
 fn renderMouse(writer: anytype, mouse: *const input.MouseDevice) !void {
     const position = mouse.position(null);
+    const delta = mouse.delta();
+    const scroll_delta = mouse.scrollDelta();
     try writer.print("mouse position: {d:.1}, {d:.1}\n", .{
         position.x,
         position.y,
+    });
+    try writer.print("mouse delta:    {d:.1}, {d:.1}\n", .{
+        delta.x,
+        delta.y,
+    });
+    try writer.print("scroll delta:   {d:.1}, {d:.1}\n", .{
+        scroll_delta.x,
+        scroll_delta.y,
     });
     try writer.writeAll("mouse buttons:\n");
 

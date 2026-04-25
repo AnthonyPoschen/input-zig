@@ -200,9 +200,10 @@ pub fn updateMouse(mouse: *device.MouseDevice) !void {
             var mask: c_uint = 0;
 
             if (c.XQueryPointer(d, c.XDefaultRootWindow(d), &root, &child, &root_x, &root_y, &win_x, &win_y, &mask) != 0) {
-                mouse.raw_position.x = @floatFromInt(root_x);
-                mouse.raw_position.y = @floatFromInt(root_y);
-                mouse.coordinate_space = .global;
+                mouse.setRawPosition(.{
+                    .x = @floatFromInt(root_x),
+                    .y = @floatFromInt(root_y),
+                }, .global);
 
                 @memset(mouse.buttons[0..], .up);
                 mouse.buttons[0] = if ((mask & c.Button1Mask) != 0) .down else .up;

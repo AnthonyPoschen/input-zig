@@ -1,6 +1,6 @@
-# input-zig
+# input
 
-`input-zig` is a pull-based input library with a shared device model.
+`input` is a pull-based input library with a shared device model.
 
 ## Core concepts
 
@@ -40,9 +40,11 @@ Backends now translate native platform keycodes into canonical `InputCode` value
 - `gamepad.update()` updates one stable logical gamepad slot
 - `input.keyboard()` and `input.mouse()`
 - `input.mouse().position(window_rect)` for raw or window-relative coordinates
+- `input.mouse().delta()` for raw per-update movement
+- `input.mouse().scrollDelta()` for per-update wheel movement
 - `input.listDevices(kind, out)` to fetch devices by type in stable order
 
-## Mouse position
+## Mouse position and movement
 
 `MouseDevice.position(window_rect)` returns a `MousePosition` value:
 
@@ -62,6 +64,14 @@ pub const MousePosition = struct {
 Mouse coordinates are exposed through `MouseDevice.position(...)`; there are no
 public `mouse.x` or `mouse.y` fields.
 
+`MouseDevice.delta()` returns an `Axis2d` with raw movement since the previous
+successful `mouse.update()`. The first position sample reports `0, 0`, then
+later samples report positive or negative movement as `current - previous`.
+
+`MouseDevice.scrollDelta()` returns an `Axis2d` with scroll wheel movement
+reported during the latest `mouse.update()`. Backends that cannot observe wheel
+events through polling report `0, 0`.
+
 `WindowRect` is a plain value type:
 
 ```zig
@@ -77,6 +87,8 @@ pub const WindowRect = struct {
 
 ```zig
 const pos = input.mouse().position(null);
+const movement = input.mouse().delta();
+const wheel = input.mouse().scrollDelta();
 const arr = pos.array();
 const vec = pos.as(struct { x: f32, y: f32 });
 ```
@@ -194,7 +206,7 @@ if (input.gamepad(1)) |pad| try pad.update();
 ## Example
 
 ```zig
-const input_lib = @import("input_zig");
+const input_lib = @import("input");
 
 var input = input_lib.InputSystem{};
 var actions = input_lib.ActionMap.init();
@@ -250,6 +262,8 @@ instead of running forever.
 The viewer redraws with:
 
 - mouse position via `MouseDevice.position(null)`
+- mouse movement via `MouseDevice.delta()`
+- scroll wheel movement via `MouseDevice.scrollDelta()`
 - mouse button `down` / `pressed` / `released`
 - a fixed set of common keyboard probes
 - gamepad connected state, buttons, sticks, and triggers
@@ -257,7 +271,7 @@ The viewer redraws with:
 For Wayland desktops, `zig build debug-input` now creates a native Wayland
 window and reports keyboard and mouse state only while that window has focus.
 
-When both `DISPLAY` and `WAYLAND_DISPLAY` are set, input-zig prefers Wayland,
+When both `DISPLAY` and `WAYLAND_DISPLAY` are set, input prefers Wayland,
 which matches the actual desktop session more closely on compositors such as
 Hyprland.
 
@@ -273,7 +287,7 @@ Hyprland.
 - The Linux joystick API may not expose newer controls such as Xbox
   screenshot/share or PlayStation Create buttons. `gamepad_capture` is therefore
   optional and may remain up even when the physical button exists.
-- input-zig does not use `/dev/input/event*` by default because those devices are
+- input does not use `/dev/input/event*` by default because those devices are
   commonly unreadable without elevated permissions or udev/group changes.
 - macOS gamepad polling currently reports disconnected slots until a proper
   GameController/IOKit bridge is added.

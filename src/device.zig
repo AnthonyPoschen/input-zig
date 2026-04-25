@@ -91,6 +91,38 @@ test "mouse position converts into array form" {
     try std.testing.expectEqual(@as(f32, 24), out[1]);
 }
 
+test "mouse delta is zero for first raw position sample" {
+    var device = MouseDevice{};
+
+    device.setRawPosition(.{ .x = 320, .y = 180 }, .global);
+    const movement = device.delta();
+
+    try std.testing.expectEqual(@as(f32, 0), movement.x);
+    try std.testing.expectEqual(@as(f32, 0), movement.y);
+}
+
+test "mouse delta tracks raw position change" {
+    var device = MouseDevice{};
+
+    device.setRawPosition(.{ .x = 320, .y = 180 }, .global);
+    device.setRawPosition(.{ .x = 300, .y = 220 }, .global);
+    const movement = device.delta();
+
+    try std.testing.expectEqual(@as(f32, -20), movement.x);
+    try std.testing.expectEqual(@as(f32, 40), movement.y);
+}
+
+test "mouse scroll delta accumulates per update" {
+    var device = MouseDevice{};
+
+    device.addScrollDelta(.{ .x = 1, .y = -2 });
+    device.addScrollDelta(.{ .x = 0.5, .y = 3 });
+    const scroll = device.scrollDelta();
+
+    try std.testing.expectEqual(@as(f32, 1.5), scroll.x);
+    try std.testing.expectEqual(@as(f32, 1), scroll.y);
+}
+
 test "gamepad button transitions use canonical button codes" {
     var pad = GamepadDevice.init(0);
 

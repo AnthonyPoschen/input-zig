@@ -5,6 +5,7 @@ const input_code = @import("input_code.zig");
 const ButtonState = common.ButtonState;
 const InputCode = input_code.InputCode;
 const WindowRect = common.WindowRect;
+const Axis2d = common.Axis2d;
 
 pub const MousePosition = struct {
     x: f32,
@@ -53,11 +54,17 @@ pub const MouseDevice = struct {
     buttons: [common.max_mouse_buttons]ButtonState = [_]ButtonState{.up} ** common.max_mouse_buttons,
     prev_buttons: [common.max_mouse_buttons]ButtonState = [_]ButtonState{.up} ** common.max_mouse_buttons,
     raw_position: MousePosition = .{ .x = 0, .y = 0 },
+    raw_delta: Axis2d = .{ .x = 0, .y = 0 },
+    scroll_delta: Axis2d = .{ .x = 0, .y = 0 },
     coordinate_space: MouseCoordinateSpace = .global,
+    position_initialized: bool = false,
 
     /// Refresh the raw mouse state from the selected platform backend.
     pub fn update(self: *MouseDevice) !void {
         self.prev_buttons = self.buttons;
+        self.raw_delta = .{ .x = 0, .y = 0 };
+        self.scroll_delta = .{ .x = 0, .y = 0 };
+
         try platform.updateMouse(self);
     }
 
@@ -96,6 +103,36 @@ pub const MouseDevice = struct {
     pub fn prevButton(self: *const MouseDevice, code: InputCode) ?bool {
         const idx = mouseIndex(code) orelse return null;
         return self.prev_buttons[idx] == .down;
+    }
+
+    pub fn setRawPosition(self: *MouseDevice, raw_position: MousePosition, coordinate_space: MouseCoordinateSpace) void {
+        if (self.position_initialized) {
+            self.raw_delta = .{
+                .x = raw_position.x - self.raw_position.x,
+                .y = raw_position.y - self.raw_position.y,
+            };
+        } else {
+            self.raw_delta = .{ .x = 0, .y = 0 };
+            self.position_initialized = true;
+        }
+
+        self.raw_position = raw_position;
+        self.coordinate_space = coordinate_space;
+    }
+
+    pub fn addScrollDelta(self: *MouseDevice, movement: Axis2d) void {
+        self.scroll_delta.x += movement.x;
+        self.scroll_delta.y += movement.y;
+    }
+
+    /// Return raw mouse movement since the previous successful update.
+    pub fn delta(self: *const MouseDevice) Axis2d {
+        return self.raw_delta;
+    }
+
+    /// Return scroll wheel movement since the previous successful update.
+    pub fn scrollDelta(self: *const MouseDevice) Axis2d {
+        return self.scroll_delta;
     }
 
     /// Return raw or window-relative mouse coordinates.

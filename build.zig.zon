@@ -1,7 +1,7 @@
 .{
-    .name = .input_zig,
+    .name = .input,
     .version = "0.0.2",
-    .fingerprint = 0xc59c4de9c2a7d0c0,
+    .fingerprint = 0xd82832d7e2cb7d62,
     .minimum_zig_version = "0.13.0",
     .dependencies = .{},
     .paths = .{

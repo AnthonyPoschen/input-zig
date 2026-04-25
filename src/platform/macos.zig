@@ -104,9 +104,10 @@ pub fn updateMouse(mouse: *device.MouseDevice) !void {
     defer c.CFRelease(event);
 
     const point = c.CGEventGetLocation(event);
-    mouse.raw_position.x = @floatCast(point.x);
-    mouse.raw_position.y = @floatCast(point.y);
-    mouse.coordinate_space = .global;
+    mouse.setRawPosition(.{
+        .x = @floatCast(point.x),
+        .y = @floatCast(point.y),
+    }, .global);
 
     @memset(mouse.buttons[0..], .up);
 
