@@ -219,6 +219,13 @@ if (actions.pressed(&input, "jump")) {
 }
 ```
 
+For a larger consumer-facing setup, see
+`examples/player_action_map.zig` and build it with:
+
+```sh
+zig build example-player
+```
+
 ## Debug viewer
 
 There is one debug viewer executable:

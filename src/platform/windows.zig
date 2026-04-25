@@ -2,10 +2,14 @@ const device = @import("../device.zig");
 
 const c = @cImport({
     @cInclude("windows.h");
-    @cInclude("Xinput.h");
+    @cInclude("xinput.h");
 });
 
 const mouse_vks = [_]c_int{ c.VK_LBUTTON, c.VK_RBUTTON, c.VK_MBUTTON, c.VK_XBUTTON1, c.VK_XBUTTON2 };
+
+fn isVirtualKeyDown(vk: c_int) bool {
+    return c.GetAsyncKeyState(vk) < 0;
+}
 
 fn mapVirtualKey(vk: usize) ?device.InputCode {
     return switch (vk) {
@@ -122,7 +126,7 @@ pub fn updateKeyboard(keyboard: *device.KeyboardDevice) !void {
 
     var vk: usize = 0;
     while (vk < 256) : (vk += 1) {
-        if ((c.GetAsyncKeyState(@intCast(vk)) & 0x8000) == 0) continue;
+        if (!isVirtualKeyDown(@intCast(vk))) continue;
         const code = mapVirtualKey(vk) orelse continue;
         const idx: usize = @intFromEnum(code);
         if (idx < device.max_keys) {
@@ -143,7 +147,7 @@ pub fn updateMouse(mouse: *device.MouseDevice) !void {
 
     var i: usize = 0;
     while (i < mouse_vks.len and i < device.max_mouse_buttons) : (i += 1) {
-        mouse.buttons[i] = if ((c.GetAsyncKeyState(mouse_vks[i]) & 0x8000) != 0) .down else .up;
+        mouse.buttons[i] = if (isVirtualKeyDown(mouse_vks[i])) .down else .up;
     }
 }
 
