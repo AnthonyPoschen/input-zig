@@ -1,8 +1,7 @@
 const input_lib = @import("input");
 
 const PlayerInput = struct {
-    move_x: f32,
-    move_y: f32,
+    move: input_lib.Axis2d,
     jump_pressed: bool,
     fire_down: bool,
     aim_down: bool,
@@ -19,22 +18,14 @@ fn setupPlayerActions(input: *input_lib.InputSystem, actions: *input_lib.ActionM
     try actions.attachDevice(input.mouse());
     try actions.attachDevice(gamepad);
 
-    try actions.set("move_forward", &.{
-        .key_w,
-        .gamepad_left_stick_up,
-    }, null);
-    try actions.set("move_back", &.{
-        .key_s,
-        .gamepad_left_stick_down,
-    }, null);
-    try actions.set("move_left", &.{
-        .key_a,
-        .gamepad_left_stick_left,
-    }, null);
-    try actions.set("move_right", &.{
-        .key_d,
-        .gamepad_left_stick_right,
-    }, null);
+    try actions.set2dComposite("move", .{
+        .left = .key_a,
+        .right = .key_d,
+        .up = .key_w,
+        .down = .key_s,
+    }, &.{.gamepad_left_stick}, .{
+        .normalize = true,
+    });
     try actions.set("jump", &.{
         .key_space,
         .gamepad_face_south,
@@ -61,21 +52,13 @@ fn setupPlayerActions(input: *input_lib.InputSystem, actions: *input_lib.ActionM
 
 /// Read a player frame from the configured action map.
 fn samplePlayerInput(input: *input_lib.InputSystem, actions: *const input_lib.ActionMap) PlayerInput {
-    // Build movement from four 1D actions because ActionMap cannot currently
-    // express a keyboard+gamepad 2D composite like WASD plus left stick.
-    const move_x = actions.axis1d(input, "move_right") -
-        actions.axis1d(input, "move_left");
-    const move_y = actions.axis1d(input, "move_forward") -
-        actions.axis1d(input, "move_back");
-
     return .{
-        .move_x = move_x,
-        .move_y = move_y,
+        .move = actions.axis2d(input, "move"),
         .jump_pressed = actions.pressed(input, "jump"),
         .fire_down = actions.down(input, "fire"),
         .aim_down = actions.down(input, "aim"),
         .pause_pressed = actions.pressed(input, "pause"),
-        .look_stick = actions.axis2d(input, "look_stick"),
+        .look_stick = actions.axis2d(input, "look"),
         .look_mouse = input.mouse().delta(),
     };
 }

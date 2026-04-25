@@ -132,7 +132,14 @@ Action maps can also read action values:
 try actions.set("forward", &.{ .key_w, .gamepad_left_stick_up }, .{
     .axis_button_threshold = 0.35,
 });
-try actions.set("move", &.{ .gamepad_left_stick }, null);
+try actions.set2dComposite("move", .{
+    .left = .key_a,
+    .right = .key_d,
+    .up = .key_w,
+    .down = .key_s,
+}, &.{.gamepad_left_stick}, .{
+    .normalize = true,
+});
 
 if (actions.down(&input, "forward")) {
     // W is held or the stick is pushed forward past the button threshold.
@@ -144,6 +151,11 @@ const move = actions.axis2d(&input, "move");
 
 `axis1d` and `axis2d` ignore incompatible codes and add compatible values
 together, clamping the final result to `[-1, 1]`.
+
+`set2dComposite` is the cleaner path for movement-style actions that combine a
+digital four-way source such as `WASD` with one or more analog 2D sources such
+as `.gamepad_left_stick`. It merges them into one `Axis2d` and can normalize
+the final vector length back to `1`.
 
 When `down`, `pressed`, or `released` checks an axis code, it uses the action's
 `axis_button_threshold`. The default threshold is `0.5`.
@@ -188,6 +200,8 @@ if (input.gamepad(1)) |pad| try pad.update();
 
 - action maps attach one or more devices
 - `set(name, codes, options)` creates or replaces an action
+- `set2dComposite(name, digital, analog_codes, options)` creates or replaces a
+  composite 2D action
 - `set(name, null, options)` disables/unbinds an action
 - `reset(name)` restores the last non-null default codes
 - `remove(name)` deletes the action
@@ -195,6 +209,7 @@ if (input.gamepad(1)) |pad| try pad.update();
   - `attachDevice`
   - `detachDevice`
   - `set`
+  - `set2dComposite`
   - `reset`
   - `resetAll`
   - `remove`

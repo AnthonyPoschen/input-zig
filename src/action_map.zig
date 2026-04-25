@@ -5,20 +5,43 @@ pub const max_actions = 64;
 pub const max_action_name_len = 32;
 pub const max_devices_per_map = 8;
 pub const max_codes_per_action = 8;
+pub const max_analog_codes_per_action = 4;
 
 pub const ActionOptions = struct {
     axis_button_threshold: f32 = 0.5,
 };
 
+pub const Digital2dBinding = struct {
+    left: ?device.InputCode = null,
+    right: ?device.InputCode = null,
+    up: ?device.InputCode = null,
+    down: ?device.InputCode = null,
+};
+
+pub const Axis2dCompositeOptions = struct {
+    normalize: bool = true,
+};
+
 const Query = enum { down, up, pressed, released };
+const ActionKind = enum { codes, composite_2d };
 
 pub const Action = struct {
     used: bool = false,
     enabled: bool = false,
     name: [max_action_name_len]u8 = [_]u8{0} ** max_action_name_len,
+    kind: ActionKind = .codes,
     code_count: usize = 0,
+    digital_2d: Digital2dBinding = .{},
+    analog_count: usize = 0,
+    analog_codes: [max_analog_codes_per_action]device.InputCode = undefined,
+    composite_options: Axis2dCompositeOptions = .{},
     default_enabled: bool = false,
+    default_kind: ActionKind = .codes,
     default_code_count: usize = 0,
+    default_digital_2d: Digital2dBinding = .{},
+    default_analog_count: usize = 0,
+    default_analog_codes: [max_analog_codes_per_action]device.InputCode = undefined,
+    default_composite_options: Axis2dCompositeOptions = .{},
     options: ActionOptions = .{},
     default_options: ActionOptions = .{},
     codes: [max_codes_per_action]device.InputCode = undefined,
@@ -69,11 +92,13 @@ pub const ActionMap = struct {
         if (codes) |value| {
             if (value.len == 0 or value.len > max_codes_per_action) return error.InvalidActionCodes;
             action.enabled = true;
+            action.kind = .codes;
             action.code_count = value.len;
             action.options = normalizedOptions(options orelse .{});
             @memcpy(action.codes[0..value.len], value);
 
             action.default_enabled = true;
+            action.default_kind = .codes;
             action.default_code_count = value.len;
             action.default_options = action.options;
             @memcpy(action.default_codes[0..value.len], value);
@@ -84,13 +109,49 @@ pub const ActionMap = struct {
         }
     }
 
+    pub fn set2dComposite(
+        self: *ActionMap,
+        name: []const u8,
+        digital: Digital2dBinding,
+        analog_codes: []const device.InputCode,
+        options: ?Axis2dCompositeOptions,
+    ) !void {
+        if (analog_codes.len > max_analog_codes_per_action) return error.InvalidActionCodes;
+
+        const action = self.findByName(name) orelse try self.createSlot(name);
+        action.enabled = true;
+        action.kind = .composite_2d;
+        action.digital_2d = digital;
+        action.analog_count = analog_codes.len;
+        action.composite_options = options orelse .{};
+        if (analog_codes.len > 0) {
+            @memcpy(action.analog_codes[0..analog_codes.len], analog_codes);
+        }
+
+        action.default_enabled = true;
+        action.default_kind = .composite_2d;
+        action.default_digital_2d = digital;
+        action.default_analog_count = analog_codes.len;
+        action.default_composite_options = action.composite_options;
+        if (analog_codes.len > 0) {
+            @memcpy(action.default_analog_codes[0..analog_codes.len], analog_codes);
+        }
+    }
+
     pub fn reset(self: *ActionMap, name: []const u8) !void {
         const action = self.findByName(name) orelse return error.ActionNotFound;
         action.enabled = action.default_enabled;
+        action.kind = action.default_kind;
         action.code_count = action.default_code_count;
+        action.digital_2d = action.default_digital_2d;
+        action.analog_count = action.default_analog_count;
+        action.composite_options = action.default_composite_options;
         action.options = action.default_options;
         if (action.default_code_count > 0) {
             @memcpy(action.codes[0..action.default_code_count], action.default_codes[0..action.default_code_count]);
+        }
+        if (action.default_analog_count > 0) {
+            @memcpy(action.analog_codes[0..action.default_analog_count], action.default_analog_codes[0..action.default_analog_count]);
         }
     }
 
@@ -98,10 +159,17 @@ pub const ActionMap = struct {
         for (self.actions[0..]) |*action| {
             if (!action.used) continue;
             action.enabled = action.default_enabled;
+            action.kind = action.default_kind;
             action.code_count = action.default_code_count;
+            action.digital_2d = action.default_digital_2d;
+            action.analog_count = action.default_analog_count;
+            action.composite_options = action.default_composite_options;
             action.options = action.default_options;
             if (action.default_code_count > 0) {
                 @memcpy(action.codes[0..action.default_code_count], action.default_codes[0..action.default_code_count]);
+            }
+            if (action.default_analog_count > 0) {
+                @memcpy(action.analog_codes[0..action.default_analog_count], action.default_analog_codes[0..action.default_analog_count]);
             }
         }
     }
@@ -136,6 +204,7 @@ pub const ActionMap = struct {
     pub fn axis1d(self: *const ActionMap, input_system: anytype, name: []const u8) f32 {
         const action = self.findByNameConst(name) orelse return 0;
         if (!action.enabled) return 0;
+        if (action.kind != .codes) return 0;
 
         var out: f32 = 0;
         var device_index: usize = 0;
@@ -151,6 +220,10 @@ pub const ActionMap = struct {
     pub fn axis2d(self: *const ActionMap, input_system: anytype, name: []const u8) device.Axis2d {
         const action = self.findByNameConst(name) orelse return .{ .x = 0, .y = 0 };
         if (!action.enabled) return .{ .x = 0, .y = 0 };
+
+        if (action.kind == .composite_2d) {
+            return evalComposite2d(self, input_system, action);
+        }
 
         var out = device.Axis2d{ .x = 0, .y = 0 };
         var device_index: usize = 0;
@@ -171,6 +244,7 @@ pub const ActionMap = struct {
     fn eval(self: *const ActionMap, input_system: anytype, name: []const u8, query: Query) bool {
         const action = self.findByNameConst(name) orelse return false;
         if (!action.enabled) return false;
+        if (action.kind != .codes) return false;
 
         var device_index: usize = 0;
         while (device_index < self.device_count) : (device_index += 1) {
@@ -271,6 +345,53 @@ pub const ActionMap = struct {
         var end: usize = 0;
         while (end < bytes.len and bytes[end] != 0) : (end += 1) {}
         return bytes[0..end];
+    }
+
+    fn evalComposite2d(self: *const ActionMap, input_system: anytype, action: *const Action) device.Axis2d {
+        var out = device.Axis2d{ .x = 0, .y = 0 };
+
+        if (action.digital_2d.left) |code| {
+            if (self.codeDown(input_system, code)) out.x -= 1;
+        }
+        if (action.digital_2d.right) |code| {
+            if (self.codeDown(input_system, code)) out.x += 1;
+        }
+        if (action.digital_2d.up) |code| {
+            if (self.codeDown(input_system, code)) out.y += 1;
+        }
+        if (action.digital_2d.down) |code| {
+            if (self.codeDown(input_system, code)) out.y -= 1;
+        }
+
+        var device_index: usize = 0;
+        while (device_index < self.device_count) : (device_index += 1) {
+            var analog_index: usize = 0;
+            while (analog_index < action.analog_count) : (analog_index += 1) {
+                if (deviceAxis2d(input_system, self.devices[device_index], action.analog_codes[analog_index])) |value| {
+                    out.x += value.x;
+                    out.y += value.y;
+                }
+            }
+        }
+
+        if (action.composite_options.normalize) {
+            const len_sq = out.x * out.x + out.y * out.y;
+            if (len_sq > 1) {
+                const len = @sqrt(len_sq);
+                out.x /= len;
+                out.y /= len;
+            }
+        }
+
+        return out;
+    }
+
+    fn codeDown(self: *const ActionMap, input_system: anytype, code: device.InputCode) bool {
+        var device_index: usize = 0;
+        while (device_index < self.device_count) : (device_index += 1) {
+            if (deviceCodeQuery(input_system, self.devices[device_index], code, .down, .{})) return true;
+        }
+        return false;
     }
 };
 
@@ -423,6 +544,50 @@ test "action map combines axis2d values" {
     const move = map.axis2d(&input_system, "move");
     try std.testing.expectEqual(@as(f32, 1), move.x);
     try std.testing.expectEqual(@as(f32, 0.25), move.y);
+}
+
+test "action map composite 2d combines keyboard and stick" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var map = ActionMap.init();
+
+    try map.attachDevice(input_system.keyboard());
+    const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
+    try map.attachDevice(gamepad);
+    try map.set2dComposite("move", .{
+        .left = .key_a,
+        .right = .key_d,
+        .up = .key_w,
+        .down = .key_s,
+    }, &.{.gamepad_left_stick}, .{ .normalize = false });
+
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_d)] = .down;
+    gamepad.left_stick = .{ .x = -0.25, .y = 0.5 };
+
+    const move = map.axis2d(&input_system, "move");
+    try std.testing.expectEqual(@as(f32, 0.75), move.x);
+    try std.testing.expectEqual(@as(f32, 0.5), move.y);
+}
+
+test "action map composite 2d normalizes diagonals" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var map = ActionMap.init();
+
+    try map.attachDevice(input_system.keyboard());
+    try map.set2dComposite("move", .{
+        .right = .key_d,
+        .up = .key_w,
+    }, &.{}, .{ .normalize = true });
+
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_d)] = .down;
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_w)] = .down;
+
+    const move = map.axis2d(&input_system, "move");
+    try std.testing.expectApproxEqAbs(@as(f32, 0.70710677), move.x, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.70710677), move.y, 0.0001);
 }
 
 test "action map axis button threshold is configurable per action" {

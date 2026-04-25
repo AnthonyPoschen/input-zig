@@ -16,6 +16,8 @@ pub const InputCode = device.InputCode;
 pub const Backend = @import("platform/mod.zig").Backend;
 pub const selectedBackend = @import("platform/mod.zig").selectedBackend;
 pub const ActionMap = action_map.ActionMap;
+pub const Axis2dCompositeOptions = action_map.Axis2dCompositeOptions;
+pub const Digital2dBinding = action_map.Digital2dBinding;
 
 pub const InputSystem = struct {
     keyboard_device: KeyboardDevice = .{},
