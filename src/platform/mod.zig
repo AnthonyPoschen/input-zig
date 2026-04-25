@@ -12,6 +12,14 @@ pub const BackendChoice = enum {
     wayland,
 };
 
+pub fn selectedBackend(choice: BackendChoice) BackendChoice {
+    return switch (builtin.os.tag) {
+        .linux => linux.selectedBackend(choice),
+        .windows, .macos => choice,
+        else => choice,
+    };
+}
+
 pub fn updateKeyboard(keyboard: *device.KeyboardDevice, choice: BackendChoice) !void {
     switch (builtin.os.tag) {
         .windows => try windows.updateKeyboard(keyboard),

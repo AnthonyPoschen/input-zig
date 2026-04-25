@@ -1,3 +1,4 @@
+const std = @import("std");
 const platform = @import("platform/mod.zig");
 
 pub const max_name_len = 32;
@@ -5,6 +6,33 @@ pub const max_keys = 256;
 pub const max_mouse_buttons = 16;
 
 pub const ButtonState = enum { up, down };
+
+pub const WindowRect = struct {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+};
+
+pub const MousePosition = struct {
+    x: f32,
+    y: f32,
+
+    /// Convert into a consumer vector with `x` and `y` fields.
+    pub fn as(self: MousePosition, comptime T: type) T {
+        return .{ .x = self.x, .y = self.y };
+    }
+
+    /// Convert into an array for array-based math APIs.
+    pub fn array(self: MousePosition) [2]f32 {
+        return .{ self.x, self.y };
+    }
+};
+
+pub const MouseCoordinateSpace = enum {
+    global,
+    window_local,
+};
 
 pub const InputCode = enum(u16) {
     // Mouse buttons (interpreted by mouse device)
@@ -226,30 +254,112 @@ pub const MouseDevice = struct {
     view: DeviceView = .{ .id = 1, .kind = .mouse, .connected = true, .name = fixedName("mouse") },
     buttons: [max_mouse_buttons]ButtonState = [_]ButtonState{.up} ** max_mouse_buttons,
     prev_buttons: [max_mouse_buttons]ButtonState = [_]ButtonState{.up} ** max_mouse_buttons,
-    x: f32 = 0,
-    y: f32 = 0,
+    raw_position: MousePosition = .{ .x = 0, .y = 0 },
+    coordinate_space: MouseCoordinateSpace = .global,
 
+    /// Refresh the raw mouse state from the selected platform backend.
     pub fn update(self: *MouseDevice, backend_choice: platform.BackendChoice) !void {
         self.prev_buttons = self.buttons;
         try platform.updateMouse(self, backend_choice);
     }
 
+    /// Return whether the requested mouse button is currently held down.
     pub fn down(self: *const MouseDevice, code: InputCode) bool {
         const idx = mouseIndex(code) orelse return false;
         return self.buttons[idx] == .down;
     }
 
+    /// Return whether the requested mouse button is currently up.
     pub fn up(self: *const MouseDevice, code: InputCode) bool {
         return !self.down(code);
     }
 
+    /// Return whether the button transitioned to down this update.
     pub fn press(self: *const MouseDevice, code: InputCode) bool {
         const idx = mouseIndex(code) orelse return false;
         return self.prev_buttons[idx] == .up and self.buttons[idx] == .down;
     }
 
+    /// Return whether the button transitioned to up this update.
     pub fn release(self: *const MouseDevice, code: InputCode) bool {
         const idx = mouseIndex(code) orelse return false;
         return self.prev_buttons[idx] == .down and self.buttons[idx] == .up;
     }
+
+    /// Return raw or window-relative mouse coordinates.
+    pub fn position(self: *const MouseDevice, window_rect: ?*const WindowRect) MousePosition {
+        if (window_rect) |rect| {
+            if (self.coordinate_space == .global) {
+                return .{
+                    .x = self.raw_position.x - rect.x,
+                    .y = self.raw_position.y - rect.y,
+                };
+            }
+        }
+
+        return self.raw_position;
+    }
 };
+
+test "mouse position subtracts window origin for global coordinates" {
+    const mouse = MouseDevice{
+        .raw_position = .{ .x = 320, .y = 180 },
+        .coordinate_space = .global,
+    };
+    const rect = WindowRect{ .x = 100, .y = 40, .width = 640, .height = 480 };
+    const pos = mouse.position(&rect);
+
+    try std.testing.expectEqual(@as(f32, 220), pos.x);
+    try std.testing.expectEqual(@as(f32, 140), pos.y);
+}
+
+test "mouse position returns raw global coordinates without window rect" {
+    const mouse = MouseDevice{
+        .raw_position = .{ .x = 320, .y = 180 },
+        .coordinate_space = .global,
+    };
+    const pos = mouse.position(null);
+
+    try std.testing.expectEqual(@as(f32, 320), pos.x);
+    try std.testing.expectEqual(@as(f32, 180), pos.y);
+}
+
+test "mouse position keeps window local coordinates unchanged" {
+    const mouse = MouseDevice{
+        .raw_position = .{ .x = 45, .y = 90 },
+        .coordinate_space = .window_local,
+    };
+    const rect = WindowRect{ .x = 100, .y = 40, .width = 640, .height = 480 };
+    const pos = mouse.position(&rect);
+
+    try std.testing.expectEqual(@as(f32, 45), pos.x);
+    try std.testing.expectEqual(@as(f32, 90), pos.y);
+}
+
+test "mouse position keeps window local coordinates without rect" {
+    const mouse = MouseDevice{
+        .raw_position = .{ .x = 45, .y = 90 },
+        .coordinate_space = .window_local,
+    };
+    const pos = mouse.position(null);
+
+    try std.testing.expectEqual(@as(f32, 45), pos.x);
+    try std.testing.expectEqual(@as(f32, 90), pos.y);
+}
+
+test "mouse position converts into consumer vector type" {
+    const pos = MousePosition{ .x = 12, .y = 24 };
+    const Vec2 = struct { x: f32, y: f32 };
+    const vec = pos.as(Vec2);
+
+    try std.testing.expectEqual(@as(f32, 12), vec.x);
+    try std.testing.expectEqual(@as(f32, 24), vec.y);
+}
+
+test "mouse position converts into array form" {
+    const pos = MousePosition{ .x = 12, .y = 24 };
+    const out = pos.array();
+
+    try std.testing.expectEqual(@as(f32, 12), out[0]);
+    try std.testing.expectEqual(@as(f32, 24), out[1]);
+}

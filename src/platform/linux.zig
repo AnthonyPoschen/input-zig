@@ -1,8 +1,8 @@
+const std = @import("std");
 const device = @import("../device.zig");
 const platform = @import("mod.zig");
 
 const c = @cImport({
-    @cInclude("stdlib.h");
     @cInclude("X11/Xlib.h");
     @cInclude("X11/Xutil.h");
     @cInclude("X11/keysym.h");
@@ -17,10 +17,12 @@ fn detectBackendOnce() LinuxBackend {
     if (cached_detected_backend) |backend| return backend;
 
     const detected: LinuxBackend = blk: {
-        const display_env = c.getenv("DISPLAY");
-        const wayland_env = c.getenv("WAYLAND_DISPLAY");
-        if (display_env != null) break :blk .x11;
+        const display_env = std.posix.getenv("DISPLAY");
+        const wayland_env = std.posix.getenv("WAYLAND_DISPLAY");
+
+        // Prefer Wayland when both Wayland and Xwayland are present.
         if (wayland_env != null) break :blk .wayland;
+        if (display_env != null) break :blk .x11;
         break :blk .none;
     };
 
@@ -33,6 +35,14 @@ fn effectiveBackend(choice: platform.BackendChoice) LinuxBackend {
         .auto => detectBackendOnce(),
         .x11 => .x11,
         .wayland => .wayland,
+    };
+}
+
+pub fn selectedBackend(choice: platform.BackendChoice) platform.BackendChoice {
+    return switch (effectiveBackend(choice)) {
+        .x11 => .x11,
+        .wayland => .wayland,
+        .none => .auto,
     };
 }
 
@@ -161,7 +171,7 @@ pub fn updateKeyboard(keyboard: *device.KeyboardDevice, choice: platform.Backend
             @memset(keyboard.keys[0..], .up);
 
             var keymap: [32]u8 = [_]u8{0} ** 32;
-            c.XQueryKeymap(d, @ptrCast(&keymap));
+            _ = c.XQueryKeymap(d, @ptrCast(&keymap));
 
             var keycode: usize = 8;
             while (keycode < 256) : (keycode += 1) {
@@ -170,7 +180,7 @@ pub fn updateKeyboard(keyboard: *device.KeyboardDevice, choice: platform.Backend
                 const down = (keymap[idx] & (@as(u8, 1) << shift)) != 0;
                 if (!down) continue;
 
-                const sym = c.XkbKeycodeToKeysym(d, @intCast(keycode), 0, 0);
+                const sym = c.XKeycodeToKeysym(d, @intCast(keycode), 0);
                 const code = mapKeysym(sym) orelse continue;
                 const out_idx: usize = @intFromEnum(code);
                 if (out_idx < device.max_keys) {
@@ -197,8 +207,9 @@ pub fn updateMouse(mouse: *device.MouseDevice, choice: platform.BackendChoice) !
             var mask: c_uint = 0;
 
             if (c.XQueryPointer(d, c.XDefaultRootWindow(d), &root, &child, &root_x, &root_y, &win_x, &win_y, &mask) != 0) {
-                mouse.x = @floatFromInt(root_x);
-                mouse.y = @floatFromInt(root_y);
+                mouse.raw_position.x = @floatFromInt(root_x);
+                mouse.raw_position.y = @floatFromInt(root_y);
+                mouse.coordinate_space = .global;
 
                 @memset(mouse.buttons[0..], .up);
                 mouse.buttons[0] = if ((mask & c.Button1Mask) != 0) .down else .up;

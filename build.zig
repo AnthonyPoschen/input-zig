@@ -17,27 +17,68 @@ fn configurePlatformLinking(step: *std.Build.Step.Compile, os_tag: std.Target.Os
     }
 }
 
+fn configureWaylandDebugLinking(step: *std.Build.Step.Compile, os_tag: std.Target.Os.Tag) void {
+    if (os_tag != .linux) return;
+
+    step.linkSystemLibrary("wayland-client");
+    step.linkSystemLibrary("wayland-cursor");
+    step.linkSystemLibrary("xkbcommon");
+    step.linkSystemLibrary("m");
+    step.root_module.addIncludePath(step.step.owner.path("src/platform"));
+    step.root_module.addCSourceFile(.{
+        .file = step.step.owner.path("src/platform/xdg-shell-protocol.c"),
+    });
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
     const module = b.addModule("input_zig", .{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
 
-    const tests = b.addTest(.{
+    const test_module = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
+    });
+    const debug_module = b.createModule(.{
+        .root_source_file = b.path("src/debug_input.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const tests = b.addTest(.{
+        .root_module = test_module,
     });
 
+    const debug_exe = b.addExecutable(.{
+        .name = "debug-input",
+        .root_module = debug_module,
+    });
+    debug_module.addImport("input_zig", module);
+
     configurePlatformLinking(tests, target.result.os.tag);
+    configurePlatformLinking(debug_exe, target.result.os.tag);
+    configureWaylandDebugLinking(debug_exe, target.result.os.tag);
 
     const run_tests = b.addRunArtifact(tests);
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&run_tests.step);
+    const run_debug = b.addRunArtifact(debug_exe);
 
-    _ = module;
+    if (b.args) |args| {
+        run_debug.addArgs(args);
+    }
+
+    const test_step = b.step("test", "Run library tests");
+    const debug_step = b.step(
+        "debug-input",
+        "Run terminal input debug viewer",
+    );
+
+    test_step.dependOn(&run_tests.step);
+    debug_step.dependOn(&run_debug.step);
 }

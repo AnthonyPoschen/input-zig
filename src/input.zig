@@ -5,9 +5,12 @@ pub const action_map = @import("action_map.zig");
 pub const DeviceKind = device.DeviceKind;
 pub const DeviceView = device.DeviceView;
 pub const KeyboardDevice = device.KeyboardDevice;
+pub const MousePosition = device.MousePosition;
 pub const MouseDevice = device.MouseDevice;
+pub const WindowRect = device.WindowRect;
 pub const InputCode = device.InputCode;
 pub const BackendChoice = @import("platform/mod.zig").BackendChoice;
+pub const selectedBackend = @import("platform/mod.zig").selectedBackend;
 pub const ActionMap = action_map.ActionMap;
 pub const Binding = action_map.Binding;
 
