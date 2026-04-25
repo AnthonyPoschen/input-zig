@@ -52,14 +52,14 @@ const mouse_probes = [_]MouseProbe{
 };
 
 const gamepad_probes = [_]GamepadProbe{
-    .{ .label = "Face South", .code = .gamepad_face_south },
-    .{ .label = "Face East", .code = .gamepad_face_east },
-    .{ .label = "Face West", .code = .gamepad_face_west },
     .{ .label = "Face North", .code = .gamepad_face_north },
+    .{ .label = "Face East", .code = .gamepad_face_east },
+    .{ .label = "Face South", .code = .gamepad_face_south },
+    .{ .label = "Face West", .code = .gamepad_face_west },
     .{ .label = "Dpad Up", .code = .gamepad_dpad_up },
+    .{ .label = "Dpad Right", .code = .gamepad_dpad_right },
     .{ .label = "Dpad Down", .code = .gamepad_dpad_down },
     .{ .label = "Dpad Left", .code = .gamepad_dpad_left },
-    .{ .label = "Dpad Right", .code = .gamepad_dpad_right },
     .{ .label = "L Shoulder", .code = .gamepad_left_shoulder },
     .{ .label = "R Shoulder", .code = .gamepad_right_shoulder },
     .{ .label = "L Trigger", .code = .gamepad_left_trigger },
@@ -73,8 +73,8 @@ const gamepad_probes = [_]GamepadProbe{
 };
 
 /// Run a terminal debug viewer that polls and prints input state.
-pub fn main() !void {
-    const config = try parseConfig();
+pub fn main(init: std.process.Init) !void {
+    const config = try parseConfig(init.minimal.args);
 
     if (builtin.os.tag == .linux) {
         if (input.selectedBackend() == .wayland) {
@@ -84,8 +84,8 @@ pub fn main() !void {
 
     var stdout_buffer: [4096]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&stdout_buffer);
-    var stderr = std.fs.File.stderr().writer(&stderr_buffer);
+    var stdout = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    var stderr = std.Io.File.stderr().writer(init.io, &stderr_buffer);
     var stdout_writer = &stdout.interface;
     var stderr_writer = &stderr.interface;
     var state = input.InputSystem{};
@@ -110,13 +110,13 @@ pub fn main() !void {
             if (frame_count >= limit) return;
         }
 
-        std.Thread.sleep(frame_time_ns);
+        try init.io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
     }
 }
 
 /// Parse optional frame limit arguments passed after `--`.
-fn parseConfig() !Config {
-    var args = try std.process.argsWithAllocator(std.heap.page_allocator);
+fn parseConfig(process_args: std.process.Args) !Config {
+    var args = try process_args.iterateAllocator(std.heap.page_allocator);
     defer args.deinit();
     var config = Config{};
 
@@ -225,6 +225,7 @@ fn renderGamepads(writer: anytype, state: *const input.InputSystem) !void {
             },
         );
         try renderRawGamepadButtons(writer, gamepad);
+        try renderGamepadDebugReport(writer, gamepad);
 
         for (gamepad_probes) |probe| {
             try writer.print(
@@ -242,10 +243,20 @@ fn renderGamepads(writer: anytype, state: *const input.InputSystem) !void {
 
 fn renderRawGamepadButtons(writer: anytype, gamepad: *const input.GamepadDevice) !void {
     try writer.writeAll("    raw buttons:");
-    for (gamepad.buttons[0..18], 0..) |button, index| {
+    for (gamepad.buttons[0..], 0..) |button, index| {
         if (button == .down) {
             try writer.print(" {d}=1", .{index});
         }
+    }
+    try writer.writeByte('\n');
+}
+
+fn renderGamepadDebugReport(writer: anytype, gamepad: *const input.GamepadDevice) !void {
+    if (gamepad.debug_report_len == 0) return;
+
+    try writer.print("    raw report id={d}:", .{gamepad.debug_report_id});
+    for (gamepad.debug_report[0..gamepad.debug_report_len]) |byte| {
+        try writer.print(" {x:0>2}", .{byte});
     }
     try writer.writeByte('\n');
 }

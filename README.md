@@ -415,8 +415,11 @@ Hyprland.
   optional and may remain up even when the physical button exists.
 - input does not use `/dev/input/event*` by default because those devices are
   commonly unreadable without elevated permissions or udev/group changes.
-- macOS gamepad polling currently reports disconnected slots until a proper
-  GameController/IOKit bridge is added.
+- macOS gamepad polling uses GameController first and falls back to IOKit HID
+  devices for wired controllers. Xbox Home is decoded from wired-controller
+  vendor reports when needed, but may remain up when the same controller is
+  connected wirelessly. Xbox Capture/Share reports are ambiguous with normal
+  button telemetry, so `gamepad_capture` may remain up on macOS too.
 
 ## Source layout
 

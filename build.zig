@@ -3,16 +3,24 @@ const std = @import("std");
 fn configurePlatformLinking(step: *std.Build.Step.Compile, os_tag: std.Target.Os.Tag) void {
     switch (os_tag) {
         .windows => {
-            step.linkSystemLibrary("user32");
-            step.linkSystemLibrary("kernel32");
-            step.linkSystemLibrary("xinput1_4");
+            step.root_module.linkSystemLibrary("user32", .{});
+            step.root_module.linkSystemLibrary("kernel32", .{});
+            step.root_module.linkSystemLibrary("xinput1_4", .{});
         },
         .linux => {
-            step.linkSystemLibrary("X11");
+            step.root_module.linkSystemLibrary("X11", .{});
         },
         .macos => {
-            step.linkFramework("ApplicationServices");
-            step.linkFramework("Carbon");
+            step.root_module.linkFramework("CoreFoundation", .{});
+            step.root_module.linkFramework("CoreGraphics", .{});
+            step.root_module.linkFramework("Foundation", .{});
+            step.root_module.linkFramework("GameController", .{});
+            step.root_module.linkFramework("IOKit", .{});
+            step.root_module.addCSourceFile(.{
+                .file = step.step.owner.path("src/platform/macos_shim.m"),
+                .flags = &.{ "-fblocks", "-fobjc-arc" },
+                .language = .objective_c,
+            });
         },
         else => {},
     }
@@ -21,10 +29,10 @@ fn configurePlatformLinking(step: *std.Build.Step.Compile, os_tag: std.Target.Os
 fn configureWaylandDebugLinking(step: *std.Build.Step.Compile, os_tag: std.Target.Os.Tag) void {
     if (os_tag != .linux) return;
 
-    step.linkSystemLibrary("wayland-client");
-    step.linkSystemLibrary("wayland-cursor");
-    step.linkSystemLibrary("xkbcommon");
-    step.linkSystemLibrary("m");
+    step.root_module.linkSystemLibrary("wayland-client", .{});
+    step.root_module.linkSystemLibrary("wayland-cursor", .{});
+    step.root_module.linkSystemLibrary("xkbcommon", .{});
+    step.root_module.linkSystemLibrary("m", .{});
     step.root_module.addIncludePath(step.step.owner.path("src/platform"));
     step.root_module.addCSourceFile(.{
         .file = step.step.owner.path("src/platform/xdg-shell-protocol.c"),
