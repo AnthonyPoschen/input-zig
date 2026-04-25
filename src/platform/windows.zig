@@ -2,6 +2,7 @@ const device = @import("../device.zig");
 
 const c = @cImport({
     @cInclude("windows.h");
+    @cInclude("Xinput.h");
 });
 
 const mouse_vks = [_]c_int{ c.VK_LBUTTON, c.VK_RBUTTON, c.VK_MBUTTON, c.VK_XBUTTON1, c.VK_XBUTTON2 };
@@ -144,4 +145,72 @@ pub fn updateMouse(mouse: *device.MouseDevice) !void {
     while (i < mouse_vks.len and i < device.max_mouse_buttons) : (i += 1) {
         mouse.buttons[i] = if ((c.GetAsyncKeyState(mouse_vks[i]) & 0x8000) != 0) .down else .up;
     }
+}
+
+fn setGamepadButton(gamepad: *device.GamepadDevice, index: usize, down: bool) void {
+    gamepad.buttons[index] = if (down) .down else .up;
+}
+
+fn normalizeThumb(value: c.SHORT, deadzone: c.SHORT) f32 {
+    if (value > -deadzone and value < deadzone) return 0;
+    if (value < 0) {
+        return @as(f32, @floatFromInt(value)) / 32768.0;
+    }
+    return @as(f32, @floatFromInt(value)) / 32767.0;
+}
+
+fn normalizeTrigger(value: c.BYTE) f32 {
+    if (value <= c.XINPUT_GAMEPAD_TRIGGER_THRESHOLD) return 0;
+    return @as(f32, @floatFromInt(value)) / 255.0;
+}
+
+pub fn updateGamepad(gamepad: *device.GamepadDevice) !void {
+    const slot = gamepad.slot() orelse return;
+    if (slot >= c.XUSER_MAX_COUNT) return;
+
+    var state: c.XINPUT_STATE = undefined;
+    if (c.XInputGetState(@intCast(slot), &state) != c.ERROR_SUCCESS) {
+        gamepad.view.connected = false;
+        gamepad.clearState();
+        return;
+    }
+
+    gamepad.view.connected = true;
+    gamepad.identity.instance_id = slot;
+    gamepad.identity.guid[0] = 'x';
+    gamepad.identity.guid[1] = 'i';
+    gamepad.identity.guid[2] = 'n';
+    gamepad.identity.guid[3] = 'p';
+    gamepad.identity.guid[4] = 'u';
+    gamepad.identity.guid[5] = 't';
+    @memset(gamepad.buttons[0..], .up);
+
+    const buttons = state.Gamepad.wButtons;
+    setGamepadButton(gamepad, 0, (buttons & c.XINPUT_GAMEPAD_A) != 0);
+    setGamepadButton(gamepad, 1, (buttons & c.XINPUT_GAMEPAD_B) != 0);
+    setGamepadButton(gamepad, 2, (buttons & c.XINPUT_GAMEPAD_X) != 0);
+    setGamepadButton(gamepad, 3, (buttons & c.XINPUT_GAMEPAD_Y) != 0);
+    setGamepadButton(gamepad, 4, (buttons & c.XINPUT_GAMEPAD_DPAD_UP) != 0);
+    setGamepadButton(gamepad, 5, (buttons & c.XINPUT_GAMEPAD_DPAD_DOWN) != 0);
+    setGamepadButton(gamepad, 6, (buttons & c.XINPUT_GAMEPAD_DPAD_LEFT) != 0);
+    setGamepadButton(gamepad, 7, (buttons & c.XINPUT_GAMEPAD_DPAD_RIGHT) != 0);
+    setGamepadButton(gamepad, 8, (buttons & c.XINPUT_GAMEPAD_LEFT_SHOULDER) != 0);
+    setGamepadButton(gamepad, 9, (buttons & c.XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0);
+    setGamepadButton(gamepad, 10, state.Gamepad.bLeftTrigger > c.XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+    setGamepadButton(gamepad, 11, state.Gamepad.bRightTrigger > c.XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+    setGamepadButton(gamepad, 12, (buttons & c.XINPUT_GAMEPAD_BACK) != 0);
+    setGamepadButton(gamepad, 13, (buttons & c.XINPUT_GAMEPAD_START) != 0);
+    setGamepadButton(gamepad, 15, (buttons & c.XINPUT_GAMEPAD_LEFT_THUMB) != 0);
+    setGamepadButton(gamepad, 16, (buttons & c.XINPUT_GAMEPAD_RIGHT_THUMB) != 0);
+
+    gamepad.left_stick = .{
+        .x = normalizeThumb(state.Gamepad.sThumbLX, c.XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE),
+        .y = normalizeThumb(state.Gamepad.sThumbLY, c.XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE),
+    };
+    gamepad.right_stick = .{
+        .x = normalizeThumb(state.Gamepad.sThumbRX, c.XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE),
+        .y = normalizeThumb(state.Gamepad.sThumbRY, c.XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE),
+    };
+    gamepad.left_trigger_value = normalizeTrigger(state.Gamepad.bLeftTrigger);
+    gamepad.right_trigger_value = normalizeTrigger(state.Gamepad.bRightTrigger);
 }

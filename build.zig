@@ -5,6 +5,7 @@ fn configurePlatformLinking(step: *std.Build.Step.Compile, os_tag: std.Target.Os
         .windows => {
             step.linkSystemLibrary("user32");
             step.linkSystemLibrary("kernel32");
+            step.linkSystemLibrary("xinput");
         },
         .linux => {
             step.linkSystemLibrary("X11");

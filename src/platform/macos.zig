@@ -116,3 +116,8 @@ pub fn updateMouse(mouse: *device.MouseDevice) !void {
         mouse.buttons[button_index] = if (down != 0) .down else .up;
     }
 }
+
+pub fn updateGamepad(gamepad: *device.GamepadDevice) !void {
+    gamepad.view.connected = false;
+    gamepad.clearState();
+}

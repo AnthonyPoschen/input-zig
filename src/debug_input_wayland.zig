@@ -1,4 +1,5 @@
 const std = @import("std");
+const input = @import("input_zig");
 
 const c = @cImport({
     @cInclude("sys/mman.h");
@@ -23,6 +24,11 @@ const KeyProbe = struct {
 const MouseProbe = struct {
     label: []const u8,
     button: u32,
+};
+
+const GamepadProbe = struct {
+    label: []const u8,
+    code: input.InputCode,
 };
 
 const key_probes = [_]KeyProbe{
@@ -51,6 +57,28 @@ const mouse_probes = [_]MouseProbe{
     .{ .label = "Button4", .button = 0x113 },
     .{ .label = "Button5", .button = 0x114 },
 };
+
+const gamepad_probes = [_]GamepadProbe{
+    .{ .label = "Face South", .code = .gamepad_face_south },
+    .{ .label = "Face East", .code = .gamepad_face_east },
+    .{ .label = "Face West", .code = .gamepad_face_west },
+    .{ .label = "Face North", .code = .gamepad_face_north },
+    .{ .label = "Dpad Up", .code = .gamepad_dpad_up },
+    .{ .label = "Dpad Down", .code = .gamepad_dpad_down },
+    .{ .label = "Dpad Left", .code = .gamepad_dpad_left },
+    .{ .label = "Dpad Right", .code = .gamepad_dpad_right },
+    .{ .label = "L Shoulder", .code = .gamepad_left_shoulder },
+    .{ .label = "R Shoulder", .code = .gamepad_right_shoulder },
+    .{ .label = "L Trigger", .code = .gamepad_left_trigger },
+    .{ .label = "R Trigger", .code = .gamepad_right_trigger },
+    .{ .label = "Select", .code = .gamepad_select },
+    .{ .label = "Start", .code = .gamepad_start },
+    .{ .label = "Home", .code = .gamepad_home },
+    .{ .label = "Capture", .code = .gamepad_capture },
+    .{ .label = "L Stick", .code = .gamepad_left_stick_press },
+    .{ .label = "R Stick", .code = .gamepad_right_stick_press },
+};
+
 
 const KeyState = struct {
     down: bool = false,
@@ -95,6 +123,7 @@ const App = struct {
     scroll_y: f64 = 0,
     key_states: [key_probes.len]KeyState = [_]KeyState{.{}} ** key_probes.len,
     button_states: [mouse_probes.len]ButtonState = [_]ButtonState{.{}} ** mouse_probes.len,
+    input_state: input.InputSystem = .{},
 
     /// Connect to Wayland globals and prepare the window objects.
     fn init(self: *App) !void {
@@ -256,12 +285,17 @@ const App = struct {
         }
     }
 
+    fn updateGamepads(self: *App) !void {
+        var slot: usize = 0;
+        while (self.input_state.gamepad(slot)) |gamepad| : (slot += 1) {
+            try gamepad.update();
+        }
+    }
+
     /// Render the current focused input state to stdout.
     fn render(self: *App, writer: *std.Io.Writer, frame_limit: ?usize) !void {
         try writer.writeAll("\x1b[2J\x1b[H");
         try writer.writeAll("input-zig debug viewer\n");
-        try writer.writeAll("backend requested: wayland\n");
-        try writer.writeAll("backend effective: wayland\n");
 
         if (frame_limit) |limit| {
             try writer.print("frame limit: {d}\n", .{limit});
@@ -312,12 +346,67 @@ const App = struct {
                 },
             );
         }
+
+        try writer.writeByte('\n');
+        try self.renderGamepads(writer);
+    }
+
+    fn renderGamepads(self: *const App, writer: *std.Io.Writer) !void {
+        try writer.writeAll("gamepads:\n");
+
+        var slot: usize = 0;
+        while (self.input_state.gamepad(slot)) |gamepad| : (slot += 1) {
+            try writer.print("  slot {d} connected={any} name={s}\n", .{
+                slot,
+                gamepad.view.connected,
+                gamepad.view.nameSlice(),
+            });
+
+            if (!gamepad.view.connected) continue;
+
+            const left = gamepad.leftStick();
+            const right = gamepad.rightStick();
+            try writer.print(
+                "    left=({d:.2}, {d:.2}) right=({d:.2}, {d:.2}) lt={d:.2} rt={d:.2}\n",
+                .{
+                    left.x,
+                    left.y,
+                    right.x,
+                    right.y,
+                    gamepad.leftTrigger(),
+                    gamepad.rightTrigger(),
+                },
+            );
+            try self.renderRawGamepadButtons(writer, gamepad);
+
+            for (gamepad_probes) |probe| {
+                try writer.print(
+                    "    {s: <11} down={any} press={any} release={any}\n",
+                    .{
+                        probe.label,
+                        gamepad.down(probe.code),
+                        gamepad.press(probe.code),
+                        gamepad.release(probe.code),
+                    },
+                );
+            }
+        }
+    }
+
+    fn renderRawGamepadButtons(_: *const App, writer: *std.Io.Writer, gamepad: *const input.GamepadDevice) !void {
+        try writer.writeAll("    raw buttons:");
+        for (gamepad.buttons[0..18], 0..) |button, index| {
+            if (button == .down) {
+                try writer.print(" {d}=1", .{index});
+            }
+        }
+        try writer.writeByte('\n');
     }
 };
 
 /// Run a native Wayland focused-window debug viewer.
 pub fn run(frame_limit: ?usize) !void {
-    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_buffer: [16384]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&stdout_buffer);
     var stderr = std.fs.File.stderr().writer(&stderr_buffer);
@@ -336,6 +425,12 @@ pub fn run(frame_limit: ?usize) !void {
     while (app.running) {
         app.beginFrame();
         app.pumpEvents() catch |err| {
+            try stdout_writer.flush();
+            try renderError(stderr_writer, err);
+            try stderr_writer.flush();
+            return err;
+        };
+        app.updateGamepads() catch |err| {
             try stdout_writer.flush();
             try renderError(stderr_writer, err);
             try stderr_writer.flush();

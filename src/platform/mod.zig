@@ -6,34 +6,42 @@ const linux = @import("linux.zig");
 const macos = @import("macos.zig");
 const unsupported = @import("unsupported.zig");
 
-pub const BackendChoice = enum {
-    auto,
+pub const Backend = enum {
     x11,
     wayland,
+    none,
 };
 
-pub fn selectedBackend(choice: BackendChoice) BackendChoice {
+pub fn selectedBackend() Backend {
     return switch (builtin.os.tag) {
-        .linux => linux.selectedBackend(choice),
-        .windows, .macos => choice,
-        else => choice,
+        .linux => linux.selectedBackend(),
+        else => .none,
     };
 }
 
-pub fn updateKeyboard(keyboard: *device.KeyboardDevice, choice: BackendChoice) !void {
+pub fn updateKeyboard(keyboard: *device.KeyboardDevice) !void {
     switch (builtin.os.tag) {
         .windows => try windows.updateKeyboard(keyboard),
-        .linux => try linux.updateKeyboard(keyboard, choice),
+        .linux => try linux.updateKeyboard(keyboard),
         .macos => try macos.updateKeyboard(keyboard),
         else => try unsupported.updateKeyboard(keyboard),
     }
 }
 
-pub fn updateMouse(mouse: *device.MouseDevice, choice: BackendChoice) !void {
+pub fn updateMouse(mouse: *device.MouseDevice) !void {
     switch (builtin.os.tag) {
         .windows => try windows.updateMouse(mouse),
-        .linux => try linux.updateMouse(mouse, choice),
+        .linux => try linux.updateMouse(mouse),
         .macos => try macos.updateMouse(mouse),
         else => try unsupported.updateMouse(mouse),
+    }
+}
+
+pub fn updateGamepad(gamepad: *device.GamepadDevice) !void {
+    switch (builtin.os.tag) {
+        .windows => try windows.updateGamepad(gamepad),
+        .linux => try linux.updateGamepad(gamepad),
+        .macos => try macos.updateGamepad(gamepad),
+        else => try unsupported.updateGamepad(gamepad),
     }
 }

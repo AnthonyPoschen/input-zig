@@ -3,12 +3,17 @@ const device = @import("../device.zig");
 const platform = @import("mod.zig");
 
 const c = @cImport({
+    @cInclude("errno.h");
+    @cInclude("fcntl.h");
+    @cInclude("linux/joystick.h");
+    @cInclude("sys/ioctl.h");
+    @cInclude("unistd.h");
     @cInclude("X11/Xlib.h");
     @cInclude("X11/Xutil.h");
     @cInclude("X11/keysym.h");
 });
 
-const LinuxBackend = enum { x11, wayland, none };
+const LinuxBackend = platform.Backend;
 
 var display: ?*c.Display = null;
 var cached_detected_backend: ?LinuxBackend = null;
@@ -30,20 +35,8 @@ fn detectBackendOnce() LinuxBackend {
     return detected;
 }
 
-fn effectiveBackend(choice: platform.BackendChoice) LinuxBackend {
-    return switch (choice) {
-        .auto => detectBackendOnce(),
-        .x11 => .x11,
-        .wayland => .wayland,
-    };
-}
-
-pub fn selectedBackend(choice: platform.BackendChoice) platform.BackendChoice {
-    return switch (effectiveBackend(choice)) {
-        .x11 => .x11,
-        .wayland => .wayland,
-        .none => .auto,
-    };
+pub fn selectedBackend() platform.Backend {
+    return detectBackendOnce();
 }
 
 fn getDisplay() ?*c.Display {
@@ -163,8 +156,8 @@ fn mapKeysym(sym: c.KeySym) ?device.InputCode {
     };
 }
 
-pub fn updateKeyboard(keyboard: *device.KeyboardDevice, choice: platform.BackendChoice) !void {
-    switch (effectiveBackend(choice)) {
+pub fn updateKeyboard(keyboard: *device.KeyboardDevice) !void {
+    switch (detectBackendOnce()) {
         .x11 => {
             const d = getDisplay() orelse return error.DisplayOpenFailed;
 
@@ -193,8 +186,8 @@ pub fn updateKeyboard(keyboard: *device.KeyboardDevice, choice: platform.Backend
     }
 }
 
-pub fn updateMouse(mouse: *device.MouseDevice, choice: platform.BackendChoice) !void {
-    switch (effectiveBackend(choice)) {
+pub fn updateMouse(mouse: *device.MouseDevice) !void {
+    switch (detectBackendOnce()) {
         .x11 => {
             const d = getDisplay() orelse return error.DisplayOpenFailed;
 
@@ -221,5 +214,185 @@ pub fn updateMouse(mouse: *device.MouseDevice, choice: platform.BackendChoice) !
         },
         .wayland => return error.WaylandGlobalPollingUnsupported,
         .none => return error.NoDisplayServer,
+    }
+}
+
+fn setGamepadButton(gamepad: *device.GamepadDevice, index: usize, down: bool) void {
+    gamepad.buttons[index] = if (down) .down else .up;
+}
+
+fn normalizeAxis(value: i16) f32 {
+    if (value < 0) {
+        return @as(f32, @floatFromInt(value)) / 32768.0;
+    }
+    return @as(f32, @floatFromInt(value)) / 32767.0;
+}
+
+fn normalizeTriggerAxis(value: i16) f32 {
+    return (normalizeAxis(value) + 1.0) * 0.5;
+}
+
+const JoystickInfo = struct {
+    index: usize,
+    axes: u8,
+    buttons: u8,
+    name: [device.max_name_len]u8,
+};
+
+fn joystickPath(index: usize, buffer: []u8) ?[:0]u8 {
+    return std.fmt.bufPrintZ(buffer, "/dev/input/js{d}", .{index}) catch null;
+}
+
+fn cString(bytes: []const u8) []const u8 {
+    var end: usize = 0;
+    while (end < bytes.len and bytes[end] != 0) : (end += 1) {}
+    return bytes[0..end];
+}
+
+fn copyName(src: []const u8) [device.max_name_len]u8 {
+    var out = [_]u8{0} ** device.max_name_len;
+    const count = @min(src.len, out.len);
+    @memcpy(out[0..count], src[0..count]);
+    return out;
+}
+
+fn isUsableJoystick(info: JoystickInfo) bool {
+    const name = cString(info.name[0..]);
+    if (name.len == 0) return false;
+    if (std.mem.indexOf(u8, name, "Unknown") != null) return false;
+    if (std.mem.indexOf(u8, name, "unknown") != null) return false;
+    return info.axes >= 2 and info.buttons >= 4;
+}
+
+fn queryJoystickInfo(fd: c_int, index: usize) ?JoystickInfo {
+    var axes: u8 = 0;
+    var buttons: u8 = 0;
+    var raw_name = [_]u8{0} ** 128;
+
+    if (c.ioctl(fd, c.JSIOCGAXES, &axes) < 0) return null;
+    if (c.ioctl(fd, c.JSIOCGBUTTONS, &buttons) < 0) return null;
+    if (c.ioctl(fd, c.JSIOCGNAME(raw_name.len), &raw_name) < 0) {
+        raw_name = [_]u8{0} ** 128;
+    }
+
+    return .{
+        .index = index,
+        .axes = axes,
+        .buttons = buttons,
+        .name = copyName(cString(raw_name[0..])),
+    };
+}
+
+fn findJoystickForSlot(slot: usize, path_buffer: []u8) ?struct { fd: c_int, info: JoystickInfo } {
+    var valid_count: usize = 0;
+    var index: usize = 0;
+    while (index < 16) : (index += 1) {
+        const path = joystickPath(index, path_buffer) orelse continue;
+        const fd = c.open(path.ptr, c.O_RDONLY | c.O_NONBLOCK);
+        if (fd < 0) continue;
+
+        const info = queryJoystickInfo(fd, index) orelse {
+            _ = c.close(fd);
+            continue;
+        };
+
+        if (!isUsableJoystick(info)) {
+            _ = c.close(fd);
+            continue;
+        }
+
+        if (valid_count == slot) {
+            return .{ .fd = fd, .info = info };
+        }
+
+        valid_count += 1;
+        _ = c.close(fd);
+    }
+
+    return null;
+}
+
+fn applyJoystickButton(gamepad: *device.GamepadDevice, button: u8, value: i16) void {
+    const down = value != 0;
+    switch (button) {
+        0 => setGamepadButton(gamepad, 0, down),
+        1 => setGamepadButton(gamepad, 1, down),
+        2 => setGamepadButton(gamepad, 2, down),
+        3 => setGamepadButton(gamepad, 3, down),
+        4 => setGamepadButton(gamepad, 8, down),
+        5 => setGamepadButton(gamepad, 9, down),
+        6 => setGamepadButton(gamepad, 12, down),
+        7 => setGamepadButton(gamepad, 13, down),
+        8 => setGamepadButton(gamepad, 14, down),
+        9 => setGamepadButton(gamepad, 15, down),
+        10 => setGamepadButton(gamepad, 16, down),
+        11 => setGamepadButton(gamepad, 17, down),
+        else => {},
+    }
+}
+
+fn applyJoystickAxis(gamepad: *device.GamepadDevice, axis: u8, value: i16) void {
+    const normalized = normalizeAxis(value);
+    switch (axis) {
+        0 => gamepad.left_stick.x = normalized,
+        1 => gamepad.left_stick.y = -normalized,
+        2 => {
+            gamepad.left_trigger_value = normalizeTriggerAxis(value);
+            setGamepadButton(gamepad, 10, gamepad.left_trigger_value > 0.5);
+        },
+        3 => gamepad.right_stick.x = normalized,
+        4 => gamepad.right_stick.y = -normalized,
+        5 => {
+            gamepad.right_trigger_value = normalizeTriggerAxis(value);
+            setGamepadButton(gamepad, 11, gamepad.right_trigger_value > 0.5);
+        },
+        6 => {
+            setGamepadButton(gamepad, 6, value < -16384);
+            setGamepadButton(gamepad, 7, value > 16384);
+        },
+        7 => {
+            setGamepadButton(gamepad, 4, value < -16384);
+            setGamepadButton(gamepad, 5, value > 16384);
+        },
+        else => {},
+    }
+}
+
+pub fn updateGamepad(gamepad: *device.GamepadDevice) !void {
+    const slot = gamepad.slot() orelse return;
+    var path_buffer: [32]u8 = undefined;
+    const joystick = findJoystickForSlot(slot, path_buffer[0..]) orelse {
+        gamepad.view.connected = false;
+        gamepad.clearState();
+        return;
+    };
+    const fd = joystick.fd;
+    defer _ = c.close(fd);
+
+    gamepad.view.connected = true;
+    gamepad.view.name = joystick.info.name;
+    gamepad.identity.instance_id = joystick.info.index;
+    gamepad.identity.guid[0] = 'j';
+    gamepad.identity.guid[1] = 's';
+    if (joystick.info.index < 10) {
+        gamepad.identity.guid[2] = @intCast('0' + joystick.info.index);
+    }
+    gamepad.clearState();
+
+    while (true) {
+        var event: c.struct_js_event = undefined;
+        const read_count = c.read(fd, &event, @sizeOf(c.struct_js_event));
+        if (read_count == @as(isize, @intCast(@sizeOf(c.struct_js_event)))) {
+            const event_type = event.type & ~@as(u8, c.JS_EVENT_INIT);
+            switch (event_type) {
+                c.JS_EVENT_BUTTON => applyJoystickButton(gamepad, event.number, event.value),
+                c.JS_EVENT_AXIS => applyJoystickAxis(gamepad, event.number, event.value),
+                else => {},
+            }
+            continue;
+        }
+
+        if (read_count < 0 and c.__errno_location().* == c.EAGAIN) return;
+        return;
     }
 }

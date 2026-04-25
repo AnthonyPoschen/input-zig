@@ -6,7 +6,6 @@ const debug_input_wayland = @import("debug_input_wayland.zig");
 const frame_time_ns = 100 * std.time.ns_per_ms;
 
 const Config = struct {
-    backend: input.BackendChoice = .auto,
     frame_limit: ?usize = null,
 };
 
@@ -16,6 +15,11 @@ const KeyProbe = struct {
 };
 
 const MouseProbe = struct {
+    label: []const u8,
+    code: input.InputCode,
+};
+
+const GamepadProbe = struct {
     label: []const u8,
     code: input.InputCode,
 };
@@ -47,12 +51,35 @@ const mouse_probes = [_]MouseProbe{
     .{ .label = "Button5", .code = .mouse_button5 },
 };
 
+const gamepad_probes = [_]GamepadProbe{
+    .{ .label = "Face South", .code = .gamepad_face_south },
+    .{ .label = "Face East", .code = .gamepad_face_east },
+    .{ .label = "Face West", .code = .gamepad_face_west },
+    .{ .label = "Face North", .code = .gamepad_face_north },
+    .{ .label = "Dpad Up", .code = .gamepad_dpad_up },
+    .{ .label = "Dpad Down", .code = .gamepad_dpad_down },
+    .{ .label = "Dpad Left", .code = .gamepad_dpad_left },
+    .{ .label = "Dpad Right", .code = .gamepad_dpad_right },
+    .{ .label = "L Shoulder", .code = .gamepad_left_shoulder },
+    .{ .label = "R Shoulder", .code = .gamepad_right_shoulder },
+    .{ .label = "L Trigger", .code = .gamepad_left_trigger },
+    .{ .label = "R Trigger", .code = .gamepad_right_trigger },
+    .{ .label = "Select", .code = .gamepad_select },
+    .{ .label = "Start", .code = .gamepad_start },
+    .{ .label = "Home", .code = .gamepad_home },
+    .{ .label = "Capture", .code = .gamepad_capture },
+    .{ .label = "L Stick", .code = .gamepad_left_stick_press },
+    .{ .label = "R Stick", .code = .gamepad_right_stick_press },
+};
+
+
 /// Run a terminal debug viewer that polls and prints input state.
 pub fn main() !void {
+    const config = try parseConfig();
+
     if (builtin.os.tag == .linux) {
-        const linux_config = try parseConfig();
-        if (input.selectedBackend(linux_config.backend) == .wayland) {
-            return debug_input_wayland.run(linux_config.frame_limit);
+        if (input.selectedBackend() == .wayland) {
+            return debug_input_wayland.run(config.frame_limit);
         }
     }
 
@@ -62,26 +89,17 @@ pub fn main() !void {
     var stderr = std.fs.File.stderr().writer(&stderr_buffer);
     var stdout_writer = &stdout.interface;
     var stderr_writer = &stderr.interface;
-    const config = try parseConfig();
-    const effective_backend = input.selectedBackend(config.backend);
     var state = input.InputSystem{};
     var frame_count: usize = 0;
 
     while (true) {
         updateAndRender(
             &state,
-            config.backend,
-            effective_backend,
             config.frame_limit,
             stdout_writer,
         ) catch |err| {
             try stdout_writer.flush();
-            try renderError(
-                stderr_writer,
-                err,
-                config.backend,
-                effective_backend,
-            );
+            try renderError(stderr_writer, err);
             try stderr_writer.flush();
             return err;
         };
@@ -97,7 +115,7 @@ pub fn main() !void {
     }
 }
 
-/// Parse optional backend and frame limit arguments passed after `--`.
+/// Parse optional frame limit arguments passed after `--`.
 fn parseConfig() !Config {
     var args = try std.process.argsWithAllocator(std.heap.page_allocator);
     defer args.deinit();
@@ -106,21 +124,6 @@ fn parseConfig() !Config {
     _ = args.next();
 
     while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "auto")) {
-            config.backend = .auto;
-            continue;
-        }
-
-        if (std.mem.eql(u8, arg, "x11")) {
-            config.backend = .x11;
-            continue;
-        }
-
-        if (std.mem.eql(u8, arg, "wayland")) {
-            config.backend = .wayland;
-            continue;
-        }
-
         if (std.mem.eql(u8, arg, "--frames")) {
             const value = args.next() orelse return error.MissingFrameLimit;
             config.frame_limit = try std.fmt.parseInt(usize, value, 10);
@@ -128,23 +131,26 @@ fn parseConfig() !Config {
         }
 
         std.debug.print(
-            "unknown arg '{s}', expected auto|x11|wayland or --frames N\n",
+            "unknown arg '{s}', expected only --frames N\n",
             .{arg},
         );
-        return error.InvalidBackendChoice;
+        return error.InvalidArgument;
     }
 
     return config;
 }
 
 /// Poll the library state and redraw the terminal view.
-fn updateAndRender(state: *input.InputSystem, requested_backend: input.BackendChoice, effective_backend: input.BackendChoice, frame_limit: ?usize, writer: anytype) !void {
-    try state.update(requested_backend);
+fn updateAndRender(state: *input.InputSystem, frame_limit: ?usize, writer: anytype) !void {
+    try state.mouse().update();
+    try state.keyboard().update();
+    var gamepad_slot: usize = 0;
+    while (state.gamepad(gamepad_slot)) |gamepad| : (gamepad_slot += 1) {
+        try gamepad.update();
+    }
 
     try writer.writeAll("\x1b[2J\x1b[H");
     try writer.print("input-zig debug viewer\n", .{});
-    try writer.print("backend requested: {s}\n", .{backendName(requested_backend)});
-    try writer.print("backend effective: {s}\n", .{backendName(effective_backend)});
 
     if (frame_limit) |limit| {
         try writer.print("frame limit: {d}\n\n", .{limit});
@@ -156,6 +162,8 @@ fn updateAndRender(state: *input.InputSystem, requested_backend: input.BackendCh
     try renderMouse(writer, state.mouse());
     try writer.writeByte('\n');
     try renderKeyboard(writer, state.keyboard());
+    try writer.writeByte('\n');
+    try renderGamepads(writer, state);
 }
 
 /// Render mouse position and button transitions.
@@ -179,6 +187,58 @@ fn renderKeyboard(writer: anytype, keyboard: *const input.KeyboardDevice) !void 
     for (key_probes) |probe| {
         try renderKeyState(writer, probe.label, keyboard, probe.code);
     }
+}
+
+fn renderGamepads(writer: anytype, state: *const input.InputSystem) !void {
+    try writer.writeAll("gamepads:\n");
+
+    var slot: usize = 0;
+    while (state.gamepad(slot)) |gamepad| : (slot += 1) {
+        try writer.print("  slot {d} connected={any} name={s}\n", .{
+            slot,
+            gamepad.view.connected,
+            gamepad.view.nameSlice(),
+        });
+
+        if (!gamepad.view.connected) continue;
+
+        const left = gamepad.leftStick();
+        const right = gamepad.rightStick();
+        try writer.print(
+            "    left=({d:.2}, {d:.2}) right=({d:.2}, {d:.2}) lt={d:.2} rt={d:.2}\n",
+            .{
+                left.x,
+                left.y,
+                right.x,
+                right.y,
+                gamepad.leftTrigger(),
+                gamepad.rightTrigger(),
+            },
+        );
+        try renderRawGamepadButtons(writer, gamepad);
+
+        for (gamepad_probes) |probe| {
+            try writer.print(
+                "    {s: <11} down={any} press={any} release={any}\n",
+                .{
+                    probe.label,
+                    gamepad.down(probe.code),
+                    gamepad.press(probe.code),
+                    gamepad.release(probe.code),
+                },
+            );
+        }
+    }
+}
+
+fn renderRawGamepadButtons(writer: anytype, gamepad: *const input.GamepadDevice) !void {
+    try writer.writeAll("    raw buttons:");
+    for (gamepad.buttons[0..18], 0..) |button, index| {
+        if (button == .down) {
+            try writer.print(" {d}=1", .{index});
+        }
+    }
+    try writer.writeByte('\n');
 }
 
 /// Print a single keyboard probe in a compact, scan-friendly row.
@@ -208,7 +268,7 @@ fn renderButtonState(writer: anytype, label: []const u8, mouse: *const input.Mou
 }
 
 /// Describe backend-specific setup problems in plain terms.
-fn renderError(writer: anytype, err: anyerror, requested_backend: input.BackendChoice, effective_backend: input.BackendChoice) !void {
+fn renderError(writer: anytype, err: anyerror) !void {
     try writer.print("debug-input failed with {s}\n", .{@errorName(err)});
 
     switch (err) {
@@ -217,7 +277,7 @@ fn renderError(writer: anytype, err: anyerror, requested_backend: input.BackendC
                 "Wayland global input polling is not implemented yet.\n",
             );
             try writer.writeAll(
-                "Run under X11 or pass `-- x11` if an X11 session is available.\n",
+                "The debug viewer uses the default backend for the current environment.\n",
             );
         },
         error.NoDisplayServer => {
@@ -225,7 +285,7 @@ fn renderError(writer: anytype, err: anyerror, requested_backend: input.BackendC
                 "No supported display server was detected for global polling.\n",
             );
             try writer.writeAll(
-                "Set DISPLAY for X11 or pass `-- x11` in an X11 session.\n",
+                "Set DISPLAY for X11 or WAYLAND_DISPLAY for Wayland.\n",
             );
         },
         error.DisplayOpenFailed => {
@@ -233,27 +293,9 @@ fn renderError(writer: anytype, err: anyerror, requested_backend: input.BackendC
                 "The X11 display could not be opened. Check DISPLAY and X access.\n",
             );
         },
-        error.InvalidBackendChoice => {
-            try writer.writeAll("Expected backend argument: auto, x11, or wayland.\n");
+        error.InvalidArgument => {
+            try writer.writeAll("Expected only --frames N.\n");
         },
         else => {},
     }
-
-    try writer.print(
-        "backend requested: {s}\n",
-        .{backendName(requested_backend)},
-    );
-    try writer.print(
-        "backend effective: {s}\n",
-        .{backendName(effective_backend)},
-    );
-}
-
-/// Convert the backend enum into a stable printable name.
-fn backendName(choice: input.BackendChoice) []const u8 {
-    return switch (choice) {
-        .auto => "auto",
-        .x11 => "x11",
-        .wayland => "wayland",
-    };
 }
