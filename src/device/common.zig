@@ -7,6 +7,21 @@ pub const first_gamepad_id = 100;
 
 pub const ButtonState = enum { up, down };
 
+pub const Axis2d = struct {
+    x: f32,
+    y: f32,
+
+    /// Convert into a consumer vector with `x` and `y` fields.
+    pub fn as(self: Axis2d, comptime T: type) T {
+        return .{ .x = self.x, .y = self.y };
+    }
+
+    /// Convert into an array for array-based math APIs.
+    pub fn array(self: Axis2d) [2]f32 {
+        return .{ self.x, self.y };
+    }
+};
+
 pub const WindowRect = struct {
     x: f32,
     y: f32,

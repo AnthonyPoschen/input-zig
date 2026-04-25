@@ -36,6 +36,16 @@ pub const InputCode = enum(u16) {
     gamepad_left_stick_press = 2015,
     gamepad_right_stick_press = 2016,
     gamepad_capture = 2017,
+    gamepad_left_stick = 2018,
+    gamepad_right_stick = 2019,
+    gamepad_left_stick_up = 2020,
+    gamepad_left_stick_down = 2021,
+    gamepad_left_stick_left = 2022,
+    gamepad_left_stick_right = 2023,
+    gamepad_right_stick_up = 2024,
+    gamepad_right_stick_down = 2025,
+    gamepad_right_stick_left = 2026,
+    gamepad_right_stick_right = 2027,
 
     // Keyboard keys (layout-level, shift-agnostic)
     key_backspace = 8,

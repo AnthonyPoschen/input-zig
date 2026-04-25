@@ -13,6 +13,7 @@ pub const max_gamepads = common.max_gamepads;
 pub const max_gamepad_buttons = common.max_gamepad_buttons;
 pub const first_gamepad_id = common.first_gamepad_id;
 
+pub const Axis2d = common.Axis2d;
 pub const ButtonState = common.ButtonState;
 pub const DeviceKind = common.DeviceKind;
 pub const DeviceView = common.DeviceView;
@@ -98,15 +99,15 @@ test "gamepad button transitions use canonical button codes" {
 
     pad.buttons[0] = .down;
     try std.testing.expect(pad.down(.gamepad_face_south));
-    try std.testing.expect(pad.press(.gamepad_face_south));
-    try std.testing.expect(!pad.release(.gamepad_face_south));
+    try std.testing.expect(pad.pressed(.gamepad_face_south));
+    try std.testing.expect(!pad.released(.gamepad_face_south));
 
     pad.prev_buttons = pad.buttons;
     try std.testing.expect(pad.down(.gamepad_face_south));
-    try std.testing.expect(!pad.press(.gamepad_face_south));
+    try std.testing.expect(!pad.pressed(.gamepad_face_south));
 
     pad.buttons[0] = .up;
-    try std.testing.expect(pad.release(.gamepad_face_south));
+    try std.testing.expect(pad.released(.gamepad_face_south));
 }
 
 test "gamepad ignores non-gamepad button codes" {
@@ -114,8 +115,8 @@ test "gamepad ignores non-gamepad button codes" {
 
     try std.testing.expect(!pad.down(.key_space));
     try std.testing.expect(pad.up(.key_space));
-    try std.testing.expect(!pad.press(.mouse_left));
-    try std.testing.expect(!pad.release(.mouse_left));
+    try std.testing.expect(!pad.pressed(.mouse_left));
+    try std.testing.expect(!pad.released(.mouse_left));
 }
 
 test "gamepad exposes normalized analog values" {

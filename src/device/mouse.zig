@@ -73,15 +73,29 @@ pub const MouseDevice = struct {
     }
 
     /// Return whether the button transitioned to down this update.
-    pub fn press(self: *const MouseDevice, code: InputCode) bool {
+    pub fn pressed(self: *const MouseDevice, code: InputCode) bool {
         const idx = mouseIndex(code) orelse return false;
         return self.prev_buttons[idx] == .up and self.buttons[idx] == .down;
     }
 
     /// Return whether the button transitioned to up this update.
-    pub fn release(self: *const MouseDevice, code: InputCode) bool {
+    pub fn released(self: *const MouseDevice, code: InputCode) bool {
         const idx = mouseIndex(code) orelse return false;
         return self.prev_buttons[idx] == .down and self.buttons[idx] == .up;
+    }
+
+    pub fn axis1d(self: *const MouseDevice, code: InputCode) ?f32 {
+        return if (self.button(code)) |value| @as(f32, if (value) 1 else 0) else null;
+    }
+
+    pub fn button(self: *const MouseDevice, code: InputCode) ?bool {
+        const idx = mouseIndex(code) orelse return null;
+        return self.buttons[idx] == .down;
+    }
+
+    pub fn prevButton(self: *const MouseDevice, code: InputCode) ?bool {
+        const idx = mouseIndex(code) orelse return null;
+        return self.prev_buttons[idx] == .down;
     }
 
     /// Return raw or window-relative mouse coordinates.

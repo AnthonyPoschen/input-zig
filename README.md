@@ -15,17 +15,17 @@
 - Devices expose local state functions:
   - `down`
   - `up`
-  - `press`
-  - `release`
+  - `pressed`
+  - `released`
 
-`press`/`release` are computed from previous vs current frame state.
+`pressed`/`released` are computed from previous vs current frame state.
 
 ## Binding model
 
-Bindings now use:
+Action maps now use:
 
-- pointer to a `DeviceView`
-- `InputCode` enum value
+- attached `DeviceView` pointers
+- per-action arrays of `InputCode` enum values
 
 `InputCode` is shared across device kinds and each device interprets the numeric value based on its own semantics.
 
@@ -92,6 +92,9 @@ labels:
 - `gamepad_face_north` for Xbox `Y` / PlayStation Triangle
 - `gamepad_capture` for capture/share-style center buttons when a backend
   exposes one
+- `gamepad_left_stick` / `gamepad_right_stick` for full 2D stick values
+- directional stick codes such as `gamepad_left_stick_up` and
+  `gamepad_left_stick_right` for button-like or 1D-axis actions
 
 Gamepad slots have stable logical ids starting at `100`. `input.gamepad(slot)`
 looks up a logical slot, while `input.gamepadCount()` counts currently connected
@@ -110,6 +113,44 @@ const throttle = pad.rightTrigger();
 
 Sticks use normalized `[-1, 1]` values. Triggers use normalized `[0, 1]`
 values.
+
+Action maps can also read action values:
+
+```zig
+try actions.set("forward", &.{ .key_w, .gamepad_left_stick_up }, .{
+    .axis_button_threshold = 0.35,
+});
+try actions.set("move", &.{ .gamepad_left_stick }, null);
+
+if (actions.down(&input, "forward")) {
+    // W is held or the stick is pushed forward past the button threshold.
+}
+
+const forward = actions.axis1d(&input, "forward");
+const move = actions.axis2d(&input, "move");
+```
+
+`axis1d` and `axis2d` ignore incompatible codes and add compatible values
+together, clamping the final result to `[-1, 1]`.
+
+When `down`, `pressed`, or `released` checks an axis code, it uses the action's
+`axis_button_threshold`. The default threshold is `0.5`.
+
+Gamepads also have per-axis deadzones for axis queries:
+
+```zig
+if (input.gamepad(0)) |pad| {
+    pad.setLeftStickDeadzone(0.2);
+    pad.setRightStickDeadzone(0.15);
+    pad.setLeftTriggerDeadzone(0.05);
+    pad.setRightTriggerDeadzone(0.05);
+
+    try pad.setDeadzone(.gamepad_left_stick_up, 0.25);
+}
+```
+
+Axis values smaller than their deadzone are reported as `0`. Directional stick
+codes share the deadzone of their parent stick.
 
 Gamepad slots are updated per device. A local multiplayer game can update only
 the slots assigned to active players:
@@ -131,20 +172,24 @@ if (input.gamepad(1)) |pad| try pad.update();
 
 ## ActionMap
 
-`ActionMap` supports keybind-style bindings with fixed action names (`32` chars).
+`ActionMap` supports keybind-style actions with fixed action names (`32` chars).
 
-- action creation requires a default binding (device pointer + code)
-- multiple bindings per action are supported
+- action maps attach one or more devices
+- `set(name, codes, options)` creates or replaces an action
+- `set(name, null, options)` disables/unbinds an action
+- `reset(name)` restores the last non-null default codes
+- `remove(name)` deletes the action
 - functions:
-  - `createAction`
-  - `bind`
-  - `unbind`
+  - `attachDevice`
+  - `detachDevice`
+  - `set`
   - `reset`
   - `resetAll`
+  - `remove`
   - `down`
   - `up`
-  - `press`
-  - `release`
+  - `pressed`
+  - `released`
 
 ## Example
 
@@ -154,8 +199,9 @@ const input_lib = @import("input_zig");
 var input = input_lib.InputSystem{};
 var actions = input_lib.ActionMap.init();
 
-try actions.createAction("jump", .{ .device = &input.keyboard().view, .code = @enumFromInt(32) });
-try actions.bind("jump", .{ .device = &input.mouse().view, .code = .mouse_left });
+try actions.attachDevice(input.keyboard());
+try actions.attachDevice(input.mouse());
+try actions.set("jump", &.{ .key_space, .mouse_left }, null);
 
 try input.keyboard().update();
 try input.mouse().update();
@@ -168,7 +214,7 @@ const window_rect = input_lib.WindowRect{
 };
 const mouse_pos = input.mouse().position(&window_rect);
 
-if (actions.press(&input, "jump")) {
+if (actions.pressed(&input, "jump")) {
     // pressed this update cycle
 }
 ```
@@ -197,7 +243,7 @@ instead of running forever.
 The viewer redraws with:
 
 - mouse position via `MouseDevice.position(null)`
-- mouse button `down` / `press` / `release`
+- mouse button `down` / `pressed` / `released`
 - a fixed set of common keyboard probes
 - gamepad connected state, buttons, sticks, and triggers
 

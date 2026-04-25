@@ -5,20 +5,7 @@ const input_code = @import("input_code.zig");
 const ButtonState = common.ButtonState;
 const InputCode = input_code.InputCode;
 
-pub const GamepadStick = struct {
-    x: f32,
-    y: f32,
-
-    /// Convert into a consumer vector with `x` and `y` fields.
-    pub fn as(self: GamepadStick, comptime T: type) T {
-        return .{ .x = self.x, .y = self.y };
-    }
-
-    /// Convert into an array for array-based math APIs.
-    pub fn array(self: GamepadStick) [2]f32 {
-        return .{ self.x, self.y };
-    }
-};
+pub const GamepadStick = common.Axis2d;
 
 pub const GamepadIdentity = struct {
     vendor_id: u16 = 0,
@@ -57,9 +44,17 @@ pub const GamepadDevice = struct {
     buttons: [common.max_gamepad_buttons]ButtonState = [_]ButtonState{.up} ** common.max_gamepad_buttons,
     prev_buttons: [common.max_gamepad_buttons]ButtonState = [_]ButtonState{.up} ** common.max_gamepad_buttons,
     left_stick: GamepadStick = .{ .x = 0, .y = 0 },
+    prev_left_stick: GamepadStick = .{ .x = 0, .y = 0 },
     right_stick: GamepadStick = .{ .x = 0, .y = 0 },
+    prev_right_stick: GamepadStick = .{ .x = 0, .y = 0 },
     left_trigger_value: f32 = 0,
+    prev_left_trigger_value: f32 = 0,
     right_trigger_value: f32 = 0,
+    prev_right_trigger_value: f32 = 0,
+    left_stick_deadzone: f32 = 0,
+    right_stick_deadzone: f32 = 0,
+    left_trigger_deadzone: f32 = 0,
+    right_trigger_deadzone: f32 = 0,
 
     pub fn init(slot_index: usize) GamepadDevice {
         var name = [_]u8{0} ** common.max_name_len;
@@ -81,6 +76,10 @@ pub const GamepadDevice = struct {
 
     pub fn update(self: *GamepadDevice) !void {
         self.prev_buttons = self.buttons;
+        self.prev_left_stick = self.left_stick;
+        self.prev_right_stick = self.right_stick;
+        self.prev_left_trigger_value = self.left_trigger_value;
+        self.prev_right_trigger_value = self.right_trigger_value;
         try platform.updateGamepad(self);
     }
 
@@ -108,29 +107,140 @@ pub const GamepadDevice = struct {
         return !self.down(code);
     }
 
-    pub fn press(self: *const GamepadDevice, code: InputCode) bool {
+    pub fn pressed(self: *const GamepadDevice, code: InputCode) bool {
         const idx = gamepadButtonIndex(code) orelse return false;
         return self.prev_buttons[idx] == .up and self.buttons[idx] == .down;
     }
 
-    pub fn release(self: *const GamepadDevice, code: InputCode) bool {
+    pub fn released(self: *const GamepadDevice, code: InputCode) bool {
         const idx = gamepadButtonIndex(code) orelse return false;
         return self.prev_buttons[idx] == .down and self.buttons[idx] == .up;
     }
 
+    pub fn axis1d(self: *const GamepadDevice, code: InputCode) ?f32 {
+        return switch (code) {
+            .gamepad_left_trigger => applyDeadzone(self.left_trigger_value, self.left_trigger_deadzone),
+            .gamepad_right_trigger => applyDeadzone(self.right_trigger_value, self.right_trigger_deadzone),
+            .gamepad_left_stick_up => positive(applyDeadzone2d(self.left_stick, self.left_stick_deadzone).y),
+            .gamepad_left_stick_down => positive(-applyDeadzone2d(self.left_stick, self.left_stick_deadzone).y),
+            .gamepad_left_stick_left => positive(-applyDeadzone2d(self.left_stick, self.left_stick_deadzone).x),
+            .gamepad_left_stick_right => positive(applyDeadzone2d(self.left_stick, self.left_stick_deadzone).x),
+            .gamepad_right_stick_up => positive(applyDeadzone2d(self.right_stick, self.right_stick_deadzone).y),
+            .gamepad_right_stick_down => positive(-applyDeadzone2d(self.right_stick, self.right_stick_deadzone).y),
+            .gamepad_right_stick_left => positive(-applyDeadzone2d(self.right_stick, self.right_stick_deadzone).x),
+            .gamepad_right_stick_right => positive(applyDeadzone2d(self.right_stick, self.right_stick_deadzone).x),
+            else => if (gamepadButtonIndex(code)) |idx| @as(f32, if (self.buttons[idx] == .down) 1 else 0) else null,
+        };
+    }
+
+    pub fn axis2d(self: *const GamepadDevice, code: InputCode) ?common.Axis2d {
+        return switch (code) {
+            .gamepad_left_stick => self.leftStick(),
+            .gamepad_right_stick => self.rightStick(),
+            else => null,
+        };
+    }
+
+    pub fn button(self: *const GamepadDevice, code: InputCode) ?bool {
+        const idx = gamepadButtonIndex(code) orelse return null;
+        return self.buttons[idx] == .down;
+    }
+
+    pub fn prevButton(self: *const GamepadDevice, code: InputCode) ?bool {
+        const idx = gamepadButtonIndex(code) orelse return null;
+        return self.prev_buttons[idx] == .down;
+    }
+
     pub fn leftStick(self: *const GamepadDevice) GamepadStick {
-        return self.left_stick;
+        return applyDeadzone2d(self.left_stick, self.left_stick_deadzone);
     }
 
     pub fn rightStick(self: *const GamepadDevice) GamepadStick {
-        return self.right_stick;
+        return applyDeadzone2d(self.right_stick, self.right_stick_deadzone);
     }
 
     pub fn leftTrigger(self: *const GamepadDevice) f32 {
-        return self.left_trigger_value;
+        return applyDeadzone(self.left_trigger_value, self.left_trigger_deadzone);
     }
 
     pub fn rightTrigger(self: *const GamepadDevice) f32 {
-        return self.right_trigger_value;
+        return applyDeadzone(self.right_trigger_value, self.right_trigger_deadzone);
+    }
+
+    pub fn prevAxis1d(self: *const GamepadDevice, code: InputCode) ?f32 {
+        return switch (code) {
+            .gamepad_left_trigger => applyDeadzone(self.prev_left_trigger_value, self.left_trigger_deadzone),
+            .gamepad_right_trigger => applyDeadzone(self.prev_right_trigger_value, self.right_trigger_deadzone),
+            .gamepad_left_stick_up => positive(applyDeadzone2d(self.prev_left_stick, self.left_stick_deadzone).y),
+            .gamepad_left_stick_down => positive(-applyDeadzone2d(self.prev_left_stick, self.left_stick_deadzone).y),
+            .gamepad_left_stick_left => positive(-applyDeadzone2d(self.prev_left_stick, self.left_stick_deadzone).x),
+            .gamepad_left_stick_right => positive(applyDeadzone2d(self.prev_left_stick, self.left_stick_deadzone).x),
+            .gamepad_right_stick_up => positive(applyDeadzone2d(self.prev_right_stick, self.right_stick_deadzone).y),
+            .gamepad_right_stick_down => positive(-applyDeadzone2d(self.prev_right_stick, self.right_stick_deadzone).y),
+            .gamepad_right_stick_left => positive(-applyDeadzone2d(self.prev_right_stick, self.right_stick_deadzone).x),
+            .gamepad_right_stick_right => positive(applyDeadzone2d(self.prev_right_stick, self.right_stick_deadzone).x),
+            else => null,
+        };
+    }
+
+    pub fn setLeftStickDeadzone(self: *GamepadDevice, deadzone: f32) void {
+        self.left_stick_deadzone = clamp(deadzone, 0, 1);
+    }
+
+    pub fn setRightStickDeadzone(self: *GamepadDevice, deadzone: f32) void {
+        self.right_stick_deadzone = clamp(deadzone, 0, 1);
+    }
+
+    pub fn setLeftTriggerDeadzone(self: *GamepadDevice, deadzone: f32) void {
+        self.left_trigger_deadzone = clamp(deadzone, 0, 1);
+    }
+
+    pub fn setRightTriggerDeadzone(self: *GamepadDevice, deadzone: f32) void {
+        self.right_trigger_deadzone = clamp(deadzone, 0, 1);
+    }
+
+    pub fn setDeadzone(self: *GamepadDevice, code: InputCode, deadzone: f32) !void {
+        const value = clamp(deadzone, 0, 1);
+        switch (code) {
+            .gamepad_left_stick,
+            .gamepad_left_stick_up,
+            .gamepad_left_stick_down,
+            .gamepad_left_stick_left,
+            .gamepad_left_stick_right,
+            => self.left_stick_deadzone = value,
+
+            .gamepad_right_stick,
+            .gamepad_right_stick_up,
+            .gamepad_right_stick_down,
+            .gamepad_right_stick_left,
+            .gamepad_right_stick_right,
+            => self.right_stick_deadzone = value,
+
+            .gamepad_left_trigger => self.left_trigger_deadzone = value,
+            .gamepad_right_trigger => self.right_trigger_deadzone = value,
+            else => return error.NotAxisCode,
+        }
     }
 };
+
+fn positive(value: f32) f32 {
+    return if (value > 0) value else 0;
+}
+
+fn clamp(value: f32, min: f32, max: f32) f32 {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+fn applyDeadzone(value: f32, deadzone: f32) f32 {
+    if (@abs(value) < deadzone) return 0;
+    return value;
+}
+
+fn applyDeadzone2d(value: GamepadStick, deadzone: f32) GamepadStick {
+    return .{
+        .x = applyDeadzone(value.x, deadzone),
+        .y = applyDeadzone(value.y, deadzone),
+    };
+}

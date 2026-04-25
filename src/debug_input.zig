@@ -219,12 +219,12 @@ fn renderGamepads(writer: anytype, state: *const input.InputSystem) !void {
 
         for (gamepad_probes) |probe| {
             try writer.print(
-                "    {s: <11} down={any} press={any} release={any}\n",
+                "    {s: <11} down={any} pressed={any} released={any}\n",
                 .{
                     probe.label,
                     gamepad.down(probe.code),
-                    gamepad.press(probe.code),
-                    gamepad.release(probe.code),
+                    gamepad.pressed(probe.code),
+                    gamepad.released(probe.code),
                 },
             );
         }
@@ -244,12 +244,12 @@ fn renderRawGamepadButtons(writer: anytype, gamepad: *const input.GamepadDevice)
 /// Print a single keyboard probe in a compact, scan-friendly row.
 fn renderKeyState(writer: anytype, label: []const u8, keyboard: *const input.KeyboardDevice, code: input.InputCode) !void {
     try writer.print(
-        "  {s: <11} down={any} press={any} release={any}\n",
+        "  {s: <11} down={any} pressed={any} released={any}\n",
         .{
             label,
             keyboard.down(code),
-            keyboard.press(code),
-            keyboard.release(code),
+            keyboard.pressed(code),
+            keyboard.released(code),
         },
     );
 }
@@ -257,12 +257,12 @@ fn renderKeyState(writer: anytype, label: []const u8, keyboard: *const input.Key
 /// Print a single mouse probe in a compact, scan-friendly row.
 fn renderButtonState(writer: anytype, label: []const u8, mouse: *const input.MouseDevice, code: input.InputCode) !void {
     try writer.print(
-        "  {s: <11} down={any} press={any} release={any}\n",
+        "  {s: <11} down={any} pressed={any} released={any}\n",
         .{
             label,
             mouse.down(code),
-            mouse.press(code),
-            mouse.release(code),
+            mouse.pressed(code),
+            mouse.released(code),
         },
     );
 }

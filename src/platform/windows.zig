@@ -196,8 +196,6 @@ pub fn updateGamepad(gamepad: *device.GamepadDevice) !void {
     setGamepadButton(gamepad, 7, (buttons & c.XINPUT_GAMEPAD_DPAD_RIGHT) != 0);
     setGamepadButton(gamepad, 8, (buttons & c.XINPUT_GAMEPAD_LEFT_SHOULDER) != 0);
     setGamepadButton(gamepad, 9, (buttons & c.XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0);
-    setGamepadButton(gamepad, 10, state.Gamepad.bLeftTrigger > c.XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
-    setGamepadButton(gamepad, 11, state.Gamepad.bRightTrigger > c.XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
     setGamepadButton(gamepad, 12, (buttons & c.XINPUT_GAMEPAD_BACK) != 0);
     setGamepadButton(gamepad, 13, (buttons & c.XINPUT_GAMEPAD_START) != 0);
     setGamepadButton(gamepad, 15, (buttons & c.XINPUT_GAMEPAD_LEFT_THUMB) != 0);

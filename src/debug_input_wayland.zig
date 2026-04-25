@@ -321,7 +321,7 @@ const App = struct {
         for (mouse_probes, 0..) |probe, idx| {
             const state = self.button_states[idx];
             try writer.print(
-                "  {s: <11} down={any} press={any} release={any}\n",
+                "  {s: <11} down={any} pressed={any} released={any}\n",
                 .{
                     probe.label,
                     state.down,
@@ -337,7 +337,7 @@ const App = struct {
         for (key_probes, 0..) |probe, idx| {
             const state = self.key_states[idx];
             try writer.print(
-                "  {s: <11} down={any} press={any} release={any}\n",
+                "  {s: <11} down={any} pressed={any} released={any}\n",
                 .{
                     probe.label,
                     state.down,
@@ -381,12 +381,12 @@ const App = struct {
 
             for (gamepad_probes) |probe| {
                 try writer.print(
-                    "    {s: <11} down={any} press={any} release={any}\n",
+                    "    {s: <11} down={any} pressed={any} released={any}\n",
                     .{
                         probe.label,
                         gamepad.down(probe.code),
-                        gamepad.press(probe.code),
-                        gamepad.release(probe.code),
+                        gamepad.pressed(probe.code),
+                        gamepad.released(probe.code),
                     },
                 );
             }

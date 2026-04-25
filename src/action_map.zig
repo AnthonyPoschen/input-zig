@@ -3,77 +3,118 @@ const device = @import("device.zig");
 
 pub const max_actions = 64;
 pub const max_action_name_len = 32;
-pub const max_bindings_per_action = 8;
+pub const max_devices_per_map = 8;
+pub const max_codes_per_action = 8;
 
-pub const Binding = struct {
-    device: *const device.DeviceView,
-    code: device.InputCode,
+pub const ActionOptions = struct {
+    axis_button_threshold: f32 = 0.5,
 };
+
+const Query = enum { down, up, pressed, released };
 
 pub const Action = struct {
     used: bool = false,
+    enabled: bool = false,
     name: [max_action_name_len]u8 = [_]u8{0} ** max_action_name_len,
-    binding_count: usize = 0,
-    default_binding: Binding,
-    bindings: [max_bindings_per_action]Binding,
+    code_count: usize = 0,
+    default_enabled: bool = false,
+    default_code_count: usize = 0,
+    options: ActionOptions = .{},
+    default_options: ActionOptions = .{},
+    codes: [max_codes_per_action]device.InputCode = undefined,
+    default_codes: [max_codes_per_action]device.InputCode = undefined,
 };
 
 pub const ActionMap = struct {
+    devices: [max_devices_per_map]*const device.DeviceView = undefined,
+    device_count: usize = 0,
     actions: [max_actions]Action = undefined,
 
     pub fn init() ActionMap {
         var out = ActionMap{};
         for (out.actions[0..]) |*action| {
-            action.* = .{
-                .default_binding = undefined,
-                .bindings = undefined,
-            };
+            action.* = .{};
         }
         return out;
     }
 
-    pub fn createAction(self: *ActionMap, name: []const u8, default_binding: Binding) !void {
-        const slot = self.findFree() orelse return error.ActionMapFull;
-        if (name.len == 0 or name.len > max_action_name_len) return error.InvalidActionName;
-
-        slot.used = true;
-        @memset(slot.name[0..], 0);
-        @memcpy(slot.name[0..name.len], name);
-        slot.default_binding = default_binding;
-        slot.binding_count = 1;
-        slot.bindings[0] = default_binding;
+    pub fn attachDevice(self: *ActionMap, input_device: anytype) !void {
+        const view = deviceView(input_device);
+        if (self.hasDevice(view)) return;
+        if (self.device_count >= max_devices_per_map) return error.TooManyDevices;
+        self.devices[self.device_count] = view;
+        self.device_count += 1;
     }
 
-    pub fn bind(self: *ActionMap, name: []const u8, binding: Binding) !void {
-        const action = self.findByName(name) orelse return error.ActionNotFound;
-        if (action.binding_count >= max_bindings_per_action) return error.TooManyBindings;
-        action.bindings[action.binding_count] = binding;
-        action.binding_count += 1;
-    }
+    pub fn detachDevice(self: *ActionMap, input_device: anytype) bool {
+        const view = deviceView(input_device);
+        var i: usize = 0;
+        while (i < self.device_count) : (i += 1) {
+            if (self.devices[i] != view) continue;
 
-    pub fn unbind(self: *ActionMap, name: []const u8, index: usize) !void {
-        const action = self.findByName(name) orelse return error.ActionNotFound;
-        if (index >= action.binding_count) return error.BindingNotFound;
-
-        var i = index;
-        while (i + 1 < action.binding_count) : (i += 1) {
-            action.bindings[i] = action.bindings[i + 1];
+            var j = i;
+            while (j + 1 < self.device_count) : (j += 1) {
+                self.devices[j] = self.devices[j + 1];
+            }
+            self.device_count -= 1;
+            return true;
         }
-        action.binding_count -= 1;
+
+        return false;
+    }
+
+    pub fn set(self: *ActionMap, name: []const u8, codes: ?[]const device.InputCode, options: ?ActionOptions) !void {
+        const action = self.findByName(name) orelse try self.createSlot(name);
+
+        if (codes) |value| {
+            if (value.len == 0 or value.len > max_codes_per_action) return error.InvalidActionCodes;
+            action.enabled = true;
+            action.code_count = value.len;
+            action.options = normalizedOptions(options orelse .{});
+            @memcpy(action.codes[0..value.len], value);
+
+            action.default_enabled = true;
+            action.default_code_count = value.len;
+            action.default_options = action.options;
+            @memcpy(action.default_codes[0..value.len], value);
+        } else {
+            action.enabled = false;
+            action.code_count = 0;
+            if (options) |value| action.options = normalizedOptions(value);
+        }
     }
 
     pub fn reset(self: *ActionMap, name: []const u8) !void {
         const action = self.findByName(name) orelse return error.ActionNotFound;
-        action.binding_count = 1;
-        action.bindings[0] = action.default_binding;
+        action.enabled = action.default_enabled;
+        action.code_count = action.default_code_count;
+        action.options = action.default_options;
+        if (action.default_code_count > 0) {
+            @memcpy(action.codes[0..action.default_code_count], action.default_codes[0..action.default_code_count]);
+        }
     }
 
     pub fn resetAll(self: *ActionMap) void {
         for (self.actions[0..]) |*action| {
             if (!action.used) continue;
-            action.binding_count = 1;
-            action.bindings[0] = action.default_binding;
+            action.enabled = action.default_enabled;
+            action.code_count = action.default_code_count;
+            action.options = action.default_options;
+            if (action.default_code_count > 0) {
+                @memcpy(action.codes[0..action.default_code_count], action.default_codes[0..action.default_code_count]);
+            }
         }
+    }
+
+    pub fn remove(self: *ActionMap, name: []const u8) bool {
+        var i: usize = 0;
+        while (i < self.actions.len) : (i += 1) {
+            if (!self.actions[i].used) continue;
+            if (!std.mem.eql(u8, cString(self.actions[i].name[0..]), name)) continue;
+            self.actions[i] = .{};
+            return true;
+        }
+        return false;
     }
 
     pub fn down(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
@@ -84,47 +125,122 @@ pub const ActionMap = struct {
         return self.eval(input_system, name, .up);
     }
 
-    pub fn press(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
-        return self.eval(input_system, name, .press);
+    pub fn pressed(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
+        return self.eval(input_system, name, .pressed);
     }
 
-    pub fn release(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
-        return self.eval(input_system, name, .release);
+    pub fn released(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
+        return self.eval(input_system, name, .released);
     }
 
-    const Query = enum { down, up, press, release };
+    pub fn axis1d(self: *const ActionMap, input_system: anytype, name: []const u8) f32 {
+        const action = self.findByNameConst(name) orelse return 0;
+        if (!action.enabled) return 0;
+
+        var out: f32 = 0;
+        var device_index: usize = 0;
+        while (device_index < self.device_count) : (device_index += 1) {
+            var code_index: usize = 0;
+            while (code_index < action.code_count) : (code_index += 1) {
+                out += deviceAxis1d(input_system, self.devices[device_index], action.codes[code_index]) orelse 0;
+            }
+        }
+        return clamp(out, -1, 1);
+    }
+
+    pub fn axis2d(self: *const ActionMap, input_system: anytype, name: []const u8) device.Axis2d {
+        const action = self.findByNameConst(name) orelse return .{ .x = 0, .y = 0 };
+        if (!action.enabled) return .{ .x = 0, .y = 0 };
+
+        var out = device.Axis2d{ .x = 0, .y = 0 };
+        var device_index: usize = 0;
+        while (device_index < self.device_count) : (device_index += 1) {
+            var code_index: usize = 0;
+            while (code_index < action.code_count) : (code_index += 1) {
+                if (deviceAxis2d(input_system, self.devices[device_index], action.codes[code_index])) |value| {
+                    out.x += value.x;
+                    out.y += value.y;
+                }
+            }
+        }
+        out.x = clamp(out.x, -1, 1);
+        out.y = clamp(out.y, -1, 1);
+        return out;
+    }
 
     fn eval(self: *const ActionMap, input_system: anytype, name: []const u8, query: Query) bool {
         const action = self.findByNameConst(name) orelse return false;
-        var i: usize = 0;
-        while (i < action.binding_count) : (i += 1) {
-            if (bindingQuery(input_system, action.bindings[i], query)) return true;
+        if (!action.enabled) return false;
+
+        var device_index: usize = 0;
+        while (device_index < self.device_count) : (device_index += 1) {
+            var code_index: usize = 0;
+            while (code_index < action.code_count) : (code_index += 1) {
+                if (deviceCodeQuery(input_system, self.devices[device_index], action.codes[code_index], query, action.options)) return true;
+            }
         }
         return false;
     }
 
-    fn bindingQuery(input_system: anytype, binding: Binding, query: Query) bool {
+    fn deviceCodeQuery(input_system: anytype, view: *const device.DeviceView, code: device.InputCode, query: Query, options: ActionOptions) bool {
         const keyboard = input_system.keyboard();
         const mouse = input_system.mouse();
 
-        if (binding.device == &keyboard.view) {
-            return switch (query) {
-                .down => keyboard.down(binding.code),
-                .up => keyboard.up(binding.code),
-                .press => keyboard.press(binding.code),
-                .release => keyboard.release(binding.code),
-            };
+        if (view == &keyboard.view) {
+            return buttonQuery(keyboard.button(code), keyboard.prevButton(code), query);
         }
 
-        if (binding.device == &mouse.view) {
-            return switch (query) {
-                .down => mouse.down(binding.code),
-                .up => mouse.up(binding.code),
-                .press => mouse.press(binding.code),
-                .release => mouse.release(binding.code),
-            };
+        if (view == &mouse.view) {
+            return buttonQuery(mouse.button(code), mouse.prevButton(code), query);
         }
 
+        var slot: usize = 0;
+        while (input_system.gamepad(slot)) |gamepad| : (slot += 1) {
+            if (view != &gamepad.view) continue;
+            if (axisButtonQuery(gamepad.axis1d(code), gamepad.prevAxis1d(code), query, options)) return true;
+            return buttonQuery(gamepad.button(code), gamepad.prevButton(code), query);
+        }
+
+        return false;
+    }
+
+    fn deviceAxis1d(input_system: anytype, view: *const device.DeviceView, code: device.InputCode) ?f32 {
+        const keyboard = input_system.keyboard();
+        const mouse = input_system.mouse();
+
+        if (view == &keyboard.view) return keyboard.axis1d(code);
+        if (view == &mouse.view) return mouse.axis1d(code);
+
+        var slot: usize = 0;
+        while (input_system.gamepad(slot)) |gamepad| : (slot += 1) {
+            if (view == &gamepad.view) return gamepad.axis1d(code);
+        }
+
+        return null;
+    }
+
+    fn deviceAxis2d(input_system: anytype, view: *const device.DeviceView, code: device.InputCode) ?device.Axis2d {
+        var slot: usize = 0;
+        while (input_system.gamepad(slot)) |gamepad| : (slot += 1) {
+            if (view == &gamepad.view) return gamepad.axis2d(code);
+        }
+
+        return null;
+    }
+
+    fn createSlot(self: *ActionMap, name: []const u8) !*Action {
+        if (name.len == 0 or name.len > max_action_name_len) return error.InvalidActionName;
+        const slot = self.findFree() orelse return error.ActionMapFull;
+        slot.* = .{ .used = true };
+        @memcpy(slot.name[0..name.len], name);
+        return slot;
+    }
+
+    fn hasDevice(self: *const ActionMap, view: *const device.DeviceView) bool {
+        var i: usize = 0;
+        while (i < self.device_count) : (i += 1) {
+            if (self.devices[i] == view) return true;
+        }
         return false;
     }
 
@@ -158,10 +274,203 @@ pub const ActionMap = struct {
     }
 };
 
-test "action map supports device pointers and press/release queries" {
-    const fake_keyboard_view = device.DeviceView{ .id = 0, .kind = .keyboard, .connected = true, .name = [_]u8{0} ** device.max_name_len };
+fn axisButtonQuery(current: ?f32, previous: ?f32, query: Query, options: ActionOptions) bool {
+    const value = current orelse return false;
+    const threshold = options.axis_button_threshold;
+    return switch (query) {
+        .down => value > threshold,
+        .up => value <= threshold,
+        .pressed => blk: {
+            const prev = previous orelse return false;
+            break :blk prev <= threshold and value > threshold;
+        },
+        .released => blk: {
+            const prev = previous orelse return false;
+            break :blk prev > threshold and value <= threshold;
+        },
+    };
+}
+
+fn buttonQuery(current: ?bool, previous: ?bool, query: Query) bool {
+    const value = current orelse return false;
+    return switch (query) {
+        .down => value,
+        .up => !value,
+        .pressed => blk: {
+            const prev = previous orelse return false;
+            break :blk !prev and value;
+        },
+        .released => blk: {
+            const prev = previous orelse return false;
+            break :blk prev and !value;
+        },
+    };
+}
+
+fn normalizedOptions(options: ActionOptions) ActionOptions {
+    return .{
+        .axis_button_threshold = clamp(options.axis_button_threshold, 0, 1),
+    };
+}
+
+fn clamp(value: f32, min: f32, max: f32) f32 {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+fn deviceView(input_device: anytype) *const device.DeviceView {
+    const ptr = @typeInfo(@TypeOf(input_device)).pointer;
+    if (ptr.child == device.DeviceView) return input_device;
+    return &input_device.view;
+}
+
+test "action map set attaches devices and stores action codes" {
+    const fake_keyboard = device.KeyboardDevice{};
 
     var map = ActionMap.init();
-    try map.createAction("jump", .{ .device = &fake_keyboard_view, .code = @enumFromInt(32) });
-    try std.testing.expect(map.findByName("jump") != null);
+    try map.attachDevice(fake_keyboard);
+    try map.set("jump", &.{.key_space}, null);
+
+    const action = map.findByName("jump") orelse return error.ActionNotFound;
+    try std.testing.expectEqual(@as(usize, 1), map.device_count);
+    try std.testing.expect(action.enabled);
+    try std.testing.expectEqual(@as(usize, 1), action.code_count);
+}
+
+test "action map evaluates codes against attached devices" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var keyboard_map = ActionMap.init();
+    var gamepad_map = ActionMap.init();
+
+    try keyboard_map.attachDevice(input_system.keyboard());
+    try keyboard_map.set("jump", &.{ .key_space, .gamepad_face_south }, null);
+
+    const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
+    try gamepad_map.attachDevice(gamepad);
+    try gamepad_map.set("jump", &.{ .key_space, .gamepad_face_south }, null);
+
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_space)] = .down;
+    gamepad.buttons[0] = .down;
+
+    try std.testing.expect(keyboard_map.down(&input_system, "jump"));
+    try std.testing.expect(gamepad_map.down(&input_system, "jump"));
+
+    _ = keyboard_map.detachDevice(input_system.keyboard());
+    try std.testing.expect(!keyboard_map.down(&input_system, "jump"));
+}
+
+test "action map set null disables reset restores and remove deletes" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var map = ActionMap.init();
+
+    try map.attachDevice(input_system.keyboard());
+    try map.set("jump", &.{.key_space}, null);
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_space)] = .down;
+
+    try std.testing.expect(map.down(&input_system, "jump"));
+    try map.set("jump", null, null);
+    try std.testing.expect(!map.down(&input_system, "jump"));
+
+    try map.reset("jump");
+    try std.testing.expect(map.down(&input_system, "jump"));
+
+    try std.testing.expect(map.remove("jump"));
+    try std.testing.expect(!map.down(&input_system, "jump"));
+}
+
+test "action map combines buttons and directional axes" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var map = ActionMap.init();
+
+    try map.attachDevice(input_system.keyboard());
+    const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
+    try map.attachDevice(gamepad);
+    try map.set("forward", &.{ .key_w, .gamepad_left_stick_up }, null);
+
+    gamepad.left_stick.y = 0.75;
+    try std.testing.expect(map.down(&input_system, "forward"));
+    try std.testing.expectEqual(@as(f32, 0.75), map.axis1d(&input_system, "forward"));
+
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_w)] = .down;
+    try std.testing.expectEqual(@as(f32, 1), map.axis1d(&input_system, "forward"));
+
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_w)] = .up;
+    gamepad.prev_left_stick.y = 0.25;
+    gamepad.left_stick.y = 0.75;
+    try std.testing.expect(map.pressed(&input_system, "forward"));
+}
+
+test "action map combines axis2d values" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var map = ActionMap.init();
+
+    const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
+    try map.attachDevice(gamepad);
+    try map.set("move", &.{ .gamepad_left_stick, .gamepad_right_stick }, null);
+
+    gamepad.left_stick = .{ .x = 0.25, .y = 0.5 };
+    gamepad.right_stick = .{ .x = 0.9, .y = -0.25 };
+
+    const move = map.axis2d(&input_system, "move");
+    try std.testing.expectEqual(@as(f32, 1), move.x);
+    try std.testing.expectEqual(@as(f32, 0.25), move.y);
+}
+
+test "action map axis button threshold is configurable per action" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var map = ActionMap.init();
+
+    const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
+    try map.attachDevice(gamepad);
+    try map.set("forward", &.{.gamepad_left_stick_up}, .{ .axis_button_threshold = 0.25 });
+
+    gamepad.prev_left_stick.y = 0.2;
+    gamepad.left_stick.y = 0.3;
+
+    try std.testing.expect(map.down(&input_system, "forward"));
+    try std.testing.expect(map.pressed(&input_system, "forward"));
+}
+
+test "action map up ignores incompatible codes" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var map = ActionMap.init();
+
+    try map.attachDevice(input_system.keyboard());
+    try map.set("move", &.{.gamepad_left_stick}, null);
+
+    try std.testing.expect(!map.up(&input_system, "move"));
+}
+
+test "gamepad deadzone clips axis query values" {
+    var gamepad = device.GamepadDevice.init(0);
+    gamepad.left_stick = .{ .x = 0.1, .y = 0.3 };
+    gamepad.right_stick = .{ .x = 0.1, .y = 0.3 };
+    gamepad.left_trigger_value = 0.1;
+    gamepad.right_trigger_value = 0.1;
+    try gamepad.setDeadzone(.gamepad_left_stick, 0.2);
+    gamepad.setRightStickDeadzone(0.05);
+    gamepad.setLeftTriggerDeadzone(0.2);
+    try gamepad.setDeadzone(.gamepad_right_trigger, 0.05);
+
+    const left = gamepad.leftStick();
+    const right = gamepad.rightStick();
+    try std.testing.expectEqual(@as(f32, 0), left.x);
+    try std.testing.expectEqual(@as(f32, 0.3), left.y);
+    try std.testing.expectEqual(@as(f32, 0.1), right.x);
+    try std.testing.expectEqual(@as(f32, 0.3), right.y);
+    try std.testing.expectEqual(@as(f32, 0), gamepad.leftTrigger());
+    try std.testing.expectEqual(@as(f32, 0.1), gamepad.rightTrigger());
 }

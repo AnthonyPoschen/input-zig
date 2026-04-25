@@ -2,8 +2,8 @@ const input = @import("input.zig");
 
 pub const action_map = input.action_map;
 pub const ActionMap = input.ActionMap;
+pub const Axis2d = input.Axis2d;
 pub const Backend = input.Backend;
-pub const Binding = input.Binding;
 pub const DeviceKind = input.DeviceKind;
 pub const DeviceView = input.DeviceView;
 pub const GamepadDevice = input.GamepadDevice;

@@ -2,6 +2,7 @@ const std = @import("std");
 const device = @import("device.zig");
 pub const action_map = @import("action_map.zig");
 
+pub const Axis2d = device.Axis2d;
 pub const DeviceKind = device.DeviceKind;
 pub const DeviceView = device.DeviceView;
 pub const GamepadDevice = device.GamepadDevice;
@@ -15,7 +16,6 @@ pub const InputCode = device.InputCode;
 pub const Backend = @import("platform/mod.zig").Backend;
 pub const selectedBackend = @import("platform/mod.zig").selectedBackend;
 pub const ActionMap = action_map.ActionMap;
-pub const Binding = action_map.Binding;
 
 pub const InputSystem = struct {
     keyboard_device: KeyboardDevice = .{},

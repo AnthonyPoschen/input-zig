@@ -338,13 +338,11 @@ fn applyJoystickAxis(gamepad: *device.GamepadDevice, axis: u8, value: i16) void 
         1 => gamepad.left_stick.y = -normalized,
         2 => {
             gamepad.left_trigger_value = normalizeTriggerAxis(value);
-            setGamepadButton(gamepad, 10, gamepad.left_trigger_value > 0.5);
         },
         3 => gamepad.right_stick.x = normalized,
         4 => gamepad.right_stick.y = -normalized,
         5 => {
             gamepad.right_trigger_value = normalizeTriggerAxis(value);
-            setGamepadButton(gamepad, 11, gamepad.right_trigger_value > 0.5);
         },
         6 => {
             setGamepadButton(gamepad, 6, value < -16384);
