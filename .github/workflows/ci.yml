@@ -1,0 +1,16 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libx11-dev
+      - name: Build project
+        run: zig build debug-input
