@@ -376,7 +376,8 @@ pub fn updateGamepad(gamepad: *device.GamepadDevice) !void {
     if (joystick.info.index < 10) {
         gamepad.identity.guid[2] = @intCast('0' + joystick.info.index);
     }
-    gamepad.clearState();
+    // /dev/input/jsN delivers edge events. Clearing state here would drop held
+    // buttons/axes on frames where no event is emitted.
 
     while (true) {
         var event: c.struct_js_event = undefined;
