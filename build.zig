@@ -102,6 +102,27 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+
+    if (target.result.os.tag == .linux) {
+        const translate_c_debug = b.addTranslateC(.{
+            .root_source_file = b.path("src/platform/linux_headers.h"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        translate_c_debug.addIncludePath(b.path("src/platform"));
+        const c_module_debug = translate_c_debug.createModule();
+        debug_module.addImport("c", c_module_debug);
+    } else if (target.result.os.tag == .windows) {
+        const translate_c_debug = b.addTranslateC(.{
+            .root_source_file = b.path("src/platform/windows_headers.h"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        const c_module_debug = translate_c_debug.createModule();
+        debug_module.addImport("c", c_module_debug);
+    }
     const example_module = b.createModule(.{
         .root_source_file = b.path("examples/player_action_map.zig"),
         .target = target,
