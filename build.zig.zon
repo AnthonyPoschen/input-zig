@@ -1,8 +1,8 @@
 .{
     .name = .input,
-    .version = "0.0.2",
+    .version = "0.0.3",
     .fingerprint = 0xd82832d7e2cb7d62,
-    .minimum_zig_version = "0.13.0",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",
