@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 
 const c = @import("c");
 // 补充 translate-c 遗漏的静态内联函数（它们不会被翻译到 zig 绑定中）
-extern fn wl_shm_release_wrapper(shm: *anyopaque) void;
+pub extern fn wl_shm_release(shm: *opaque {}) void;
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
 const window_width = 640;
@@ -173,9 +173,7 @@ const App = struct {
         if (self.xdg_surface) |xdg_surface| c.xdg_surface_destroy(xdg_surface);
         if (self.surface) |surface| c.wl_surface_destroy(surface);
         if (self.wm_base) |wm_base| c.xdg_wm_base_destroy(wm_base);
-        //if (self.shm) |shm| c.wl_shm_release(shm);
-        // 之前是 c.wl_shm_release(shm);
-        if (self.shm) |shm| wl_shm_release_wrapper(@ptrCast(shm)); // shm 的类型如果是不透明指针，可直接传
+        if (self.shm) |shm| wl_shm_release(@ptrCast(shm));
         if (self.registry) |registry| c.wl_registry_destroy(registry);
         if (self.xkb_state) |state| c.xkb_state_unref(state);
         if (self.xkb_keymap) |keymap| c.xkb_keymap_unref(keymap);
