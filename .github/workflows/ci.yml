@@ -32,5 +32,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libwayland-dev libxkbcommon-dev wayland-protocols
-      - name: Build project
-        run: zig build debug-input
+
+      - name: Install system dependencies (including xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libx11-dev xvfb
+
+      - name: Build and run debug-input (with virtual display)
+        run: xvfb-run -a zig build debug-input
+
+      # - name: Build project
+      #   run: zig build debug-input
