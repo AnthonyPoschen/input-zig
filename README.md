@@ -129,16 +129,17 @@ values.
 Action maps can also read action values:
 
 ```zig
-try actions.set("forward", &.{ .key_w, .gamepad_left_stick_up }, .{
-    .axis_button_threshold = 0.35,
+try actions.set("forward", &.{
+    .{ .code = .key_w },
+    .{ .code = .gamepad_left_stick_up, .activation_threshold = 0.35 },
 });
 try actions.set2d("move", .{
-    .left = &.{.key_a},
-    .right = &.{.key_d},
-    .up = &.{.key_w},
-    .down = &.{.key_s},
-    .vectors = &.{.gamepad_left_stick},
-}, null);
+    .left = &.{.{ .code = .key_a }},
+    .right = &.{.{ .code = .key_d }},
+    .up = &.{.{ .code = .key_w }},
+    .down = &.{.{ .code = .key_s }},
+    .vectors = &.{.{ .code = .gamepad_left_stick }},
+});
 
 if (actions.down(&input, "forward")) {
     // W is held or the stick is pushed forward past the button threshold.
@@ -157,12 +158,13 @@ four-way digital sources such as `WASD` with vector sources such as
 `.gamepad_left_stick`. It merges them into one `Axis2d` and clamps each final
 component to `[-1, 1]`.
 
-When `down`, `pressed`, or `released` checks an axis code, it uses the action's
-`axis_button_threshold`. The default threshold is `0.5`.
+When `down`, `pressed`, or `released` checks an analog-capable bound input, it
+uses that binding's `activation_threshold`. If none is set, the default
+threshold is `0.5`.
 
 Direct gamepad button queries also treat 1D axis codes as buttons. For example,
 `pad.down(.gamepad_left_trigger)` becomes true when the left trigger is above
-the gamepad's axis button threshold. Use `pad.setAxisButtonThreshold(...)` to
+the gamepad's activation threshold. Use `pad.setActivationThreshold(...)` to
 change the default `0.5` threshold, or `buttonWithThreshold` /
 `prevButtonWithThreshold` when a caller has its own threshold.
 
@@ -208,9 +210,9 @@ if (input.gamepad(1)) |pad| try pad.update();
 `ActionMap` supports keybind-style actions with fixed action names (`32` chars).
 
 - action maps attach one or more devices
-- `set(name, codes, options)` creates or replaces an action
-- `set2d(name, binding, options)` creates or replaces a 2D action
-- `set(name, null, options)` disables/unbinds an action
+- `set(name, codes)` creates or replaces an action
+- `set2d(name, binding)` creates or replaces a 2D action
+- `set(name, null)` disables/unbinds an action
 - `reset(name, defaults)` restores one action from a separate default map
 - `resetAll(defaults)` replaces all actions with a separate default map
 - `findConflict(code, ignore_action)` finds the first action already using an
@@ -228,8 +230,9 @@ if (input.gamepad(1)) |pad| try pad.update();
   - `resetAll`
   - `remove`
   - `actionCount`
-  - `exportBindings`
+  - `snapshot`
   - `importBindings`
+  - `loadSnapshot`
   - `actionCodes`
   - `action2d`
   - `findConflict`
@@ -242,14 +245,17 @@ A game can keep hard-coded defaults separate from user-editable bindings:
 
 ```zig
 var defaults = input_lib.ActionMap.init();
-try defaults.set("jump", &.{ .key_space, .gamepad_face_south }, null);
+try defaults.set("jump", &.{
+    .{ .code = .key_space },
+    .{ .code = .gamepad_face_south },
+});
 try defaults.set2d("move", .{
-    .left = &.{.key_a},
-    .right = &.{.key_d},
-    .up = &.{.key_w},
-    .down = &.{.key_s},
-    .vectors = &.{.gamepad_left_stick},
-}, null);
+    .left = &.{.{ .code = .key_a }},
+    .right = &.{.{ .code = .key_d }},
+    .up = &.{.{ .code = .key_w }},
+    .down = &.{.{ .code = .key_s }},
+    .vectors = &.{.{ .code = .gamepad_left_stick }},
+});
 
 var bindings = defaults;
 try bindings.attachDevices(&input, .{
@@ -258,36 +264,38 @@ try bindings.attachDevices(&input, .{
     .gamepad_slot = 0,
 });
 
-try bindings.set("jump", &.{ .key_j, .gamepad_face_south }, null);
+try bindings.set("jump", &.{
+    .{ .code = .key_j },
+    .{ .code = .gamepad_face_south },
+});
 try bindings.reset("jump", &defaults);
 ```
 
-For save/load, export the current bindings into plain `ActionBinding` values.
-The examples below serialize those values to JSON:
+For save/load, take an `ActionBindings` snapshot and write its slice. The JSON
+shape is a plain array of `ActionBinding` values:
 
 ```zig
-var saved: [input_lib.action_map.max_actions]input_lib.ActionBinding = undefined;
-const count = bindings.exportBindings(saved[0..]);
+const saved = bindings.snapshot();
+try std.json.Stringify.value(saved.slice(), .{
+    .emit_null_optional_fields = false,
+}, writer);
 
-var i: usize = 0;
-while (i < count) : (i += 1) {
-    const binding = saved[i];
+for (saved.slice()) |binding| {
+    _ = binding.name;
 
     if (binding.codes) |codes| {
         for (codes) |code| {
-            const token = input_lib.inputCodeName(code) orelse "unknown";
+            const token = input_lib.inputCodeName(code.code) orelse "unknown";
             _ = token;
         }
     }
 
     if (binding.left) |codes| {
         for (codes) |code| {
-            const token = input_lib.inputCodeName(code) orelse "unknown";
+            const token = input_lib.inputCodeName(code.code) orelse "unknown";
             _ = token;
         }
     }
-
-    _ = binding.name;
 }
 ```
 
@@ -303,7 +311,7 @@ For a keybinding GUI, inspect one action by name:
 ```zig
 if (bindings.actionCodes("jump")) |codes| {
     for (codes) |code| {
-        const label = input_lib.inputCodeLabel(code) orelse "Unknown";
+        const label = input_lib.inputCodeLabel(code.code) orelse "Unknown";
         _ = label;
     }
 }
@@ -311,7 +319,7 @@ if (bindings.actionCodes("jump")) |codes| {
 if (bindings.action2d("move")) |binding| {
     if (binding.left) |codes| {
         for (codes) |code| {
-            const label = input_lib.inputCodeLabel(code) orelse "Unknown";
+            const label = input_lib.inputCodeLabel(code.code) orelse "Unknown";
             _ = label;
         }
     }
@@ -335,7 +343,10 @@ try actions.attachDevices(&input, .{
     .keyboard = true,
     .mouse = true,
 });
-try actions.set("jump", &.{ .key_space, .mouse_left }, null);
+try actions.set("jump", &.{
+    .{ .code = .key_space },
+    .{ .code = .mouse_left },
+});
 
 try input.keyboard().update();
 try input.mouse().update();
@@ -363,7 +374,8 @@ zig build example-player
 Two save/load examples use JSON on disk:
 
 - `examples/save_action_map.zig` writes the current action map to
-  `action_bindings.json` as a plain JSON array of `ActionBinding` objects.
+  `action_bindings.json` as a plain JSON array of `ActionBinding` objects with
+  per-input metadata.
 - `examples/load_action_map_debug.zig` loads `action_bindings.json` when it
   exists, otherwise uses hard-coded defaults, then displays every action and
   its current state. On Wayland it opens the same focused helper window as

@@ -1,7 +1,10 @@
 const input = @import("input.zig");
 
-pub const action_map = input.action_map;
+pub const max_actions = input.max_actions;
+pub const max_action_name_len = input.max_action_name_len;
+pub const BoundInput = input.BoundInput;
 pub const ActionBinding = input.ActionBinding;
+pub const ActionBindings = input.ActionBindings;
 pub const ActionKind = input.ActionKind;
 pub const ActionMap = input.ActionMap;
 pub const Action2dBinding = input.Action2dBinding;

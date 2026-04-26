@@ -188,10 +188,9 @@ fn renderActionMap(
         });
     }
 
-    var bindings: [input.action_map.max_actions]input.ActionBinding = undefined;
-    const count = actions.exportBindings(bindings[0..]);
+    const bindings = actions.snapshot();
 
-    for (bindings[0..count]) |binding| {
+    for (bindings.slice()) |binding| {
         switch (binding.kind) {
             .codes => try renderCodeAction(writer, state, actions, binding),
             .axis_2d => try renderAxis2dAction(writer, state, actions, binding),
@@ -260,7 +259,7 @@ fn writeFixed(writer: *std.Io.Writer, value: f32, comptime scale: i32) !void {
 fn renderNamedCodeList(
     writer: *std.Io.Writer,
     label: []const u8,
-    codes: ?[]const input.InputCode,
+    codes: ?[]const input.BoundInput,
 ) !void {
     if (codes == null) return;
     try writer.print("  {s: <8} ", .{label});
@@ -268,11 +267,11 @@ fn renderNamedCodeList(
     try writer.writeByte('\n');
 }
 
-fn renderCodeList(writer: *std.Io.Writer, codes: []const input.InputCode) !void {
+fn renderCodeList(writer: *std.Io.Writer, codes: []const input.BoundInput) !void {
     try writer.writeByte('[');
     for (codes, 0..) |code, index| {
         if (index > 0) try writer.writeAll(", ");
-        try writer.writeAll(input.inputCodeLabel(code) orelse input.inputCodeName(code) orelse "Unknown");
+        try writer.writeAll(input.inputCodeLabel(code.code) orelse input.inputCodeName(code.code) orelse "Unknown");
     }
     try writer.writeByte(']');
 }

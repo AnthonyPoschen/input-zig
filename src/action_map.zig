@@ -8,8 +8,9 @@ pub const max_codes_per_action = 8;
 pub const max_codes_per_2d_direction = 4;
 pub const max_vectors_per_action = 4;
 
-pub const ActionOptions = struct {
-    axis_button_threshold: f32 = 0.5,
+pub const BoundInput = struct {
+    code: device.InputCode,
+    activation_threshold: ?f32 = null,
 };
 
 pub const AttachOptions = struct {
@@ -19,11 +20,11 @@ pub const AttachOptions = struct {
 };
 
 pub const Action2dBinding = struct {
-    left: ?[]const device.InputCode = null,
-    right: ?[]const device.InputCode = null,
-    up: ?[]const device.InputCode = null,
-    down: ?[]const device.InputCode = null,
-    vectors: ?[]const device.InputCode = null,
+    left: ?[]const BoundInput = null,
+    right: ?[]const BoundInput = null,
+    up: ?[]const BoundInput = null,
+    down: ?[]const BoundInput = null,
+    vectors: ?[]const BoundInput = null,
 };
 
 const Query = enum { down, up, pressed, released };
@@ -48,16 +49,24 @@ pub const ActionBinding = struct {
     name: []const u8,
     enabled: bool = true,
     kind: ActionKind = .codes,
-    options: ActionOptions = .{},
-    codes: ?[]const device.InputCode = null,
-    left: ?[]const device.InputCode = null,
-    right: ?[]const device.InputCode = null,
-    up: ?[]const device.InputCode = null,
-    down: ?[]const device.InputCode = null,
-    vectors: ?[]const device.InputCode = null,
+    codes: ?[]const BoundInput = null,
+    left: ?[]const BoundInput = null,
+    right: ?[]const BoundInput = null,
+    up: ?[]const BoundInput = null,
+    down: ?[]const BoundInput = null,
+    vectors: ?[]const BoundInput = null,
 };
 
-pub const Action = struct {
+pub const ActionBindings = struct {
+    count: usize = 0,
+    entries: [max_actions]ActionBinding = undefined,
+
+    pub fn slice(self: *const ActionBindings) []const ActionBinding {
+        return self.entries[0..self.count];
+    }
+};
+
+const Action = struct {
     used: bool = false,
     enabled: bool = false,
     name: [max_action_name_len]u8 = [_]u8{0} ** max_action_name_len,
@@ -68,13 +77,12 @@ pub const Action = struct {
     up_count: usize = 0,
     down_count: usize = 0,
     vector_count: usize = 0,
-    left_codes: [max_codes_per_2d_direction]device.InputCode = undefined,
-    right_codes: [max_codes_per_2d_direction]device.InputCode = undefined,
-    up_codes: [max_codes_per_2d_direction]device.InputCode = undefined,
-    down_codes: [max_codes_per_2d_direction]device.InputCode = undefined,
-    vector_codes: [max_vectors_per_action]device.InputCode = undefined,
-    options: ActionOptions = .{},
-    codes: [max_codes_per_action]device.InputCode = undefined,
+    left_codes: [max_codes_per_2d_direction]BoundInput = undefined,
+    right_codes: [max_codes_per_2d_direction]BoundInput = undefined,
+    up_codes: [max_codes_per_2d_direction]BoundInput = undefined,
+    down_codes: [max_codes_per_2d_direction]BoundInput = undefined,
+    vector_codes: [max_vectors_per_action]BoundInput = undefined,
+    codes: [max_codes_per_action]BoundInput = undefined,
 };
 
 pub const ActionMap = struct {
@@ -124,24 +132,23 @@ pub const ActionMap = struct {
         return false;
     }
 
-    pub fn set(self: *ActionMap, name: []const u8, codes: ?[]const device.InputCode, options: ?ActionOptions) !void {
+    pub fn set(self: *ActionMap, name: []const u8, codes: ?[]const BoundInput) !void {
         const action = self.findByName(name) orelse try self.createSlot(name);
 
         if (codes) |value| {
             if (value.len == 0 or value.len > max_codes_per_action) return error.InvalidActionCodes;
+            for (value) |input_binding| try validateBoundInput(input_binding);
             action.enabled = true;
             action.kind = .codes;
             action.code_count = value.len;
-            action.options = normalizedOptions(options orelse .{});
             @memcpy(action.codes[0..value.len], value);
         } else {
             action.enabled = false;
             action.code_count = 0;
-            if (options) |value| action.options = normalizedOptions(value);
         }
     }
 
-    pub fn set2d(self: *ActionMap, name: []const u8, binding: Action2dBinding, options: ?ActionOptions) !void {
+    pub fn set2d(self: *ActionMap, name: []const u8, binding: Action2dBinding) !void {
         const action = self.findByName(name) orelse try self.createSlot(name);
 
         action.left_count = try copyBindingCodes(
@@ -176,7 +183,6 @@ pub const ActionMap = struct {
 
         action.enabled = true;
         action.kind = .axis_2d;
-        action.options = normalizedOptions(options orelse .{});
     }
 
     pub fn reset(self: *ActionMap, name: []const u8, defaults: *const ActionMap) !void {
@@ -218,7 +224,7 @@ pub const ActionMap = struct {
         return count;
     }
 
-    pub fn copyBindings(self: *const ActionMap, out: []ActionBinding) usize {
+    fn copyBindings(self: *const ActionMap, out: []ActionBinding) usize {
         var count: usize = 0;
         for (self.actions[0..]) |*action| {
             if (!action.used) continue;
@@ -229,11 +235,13 @@ pub const ActionMap = struct {
         return count;
     }
 
-    pub fn exportBindings(self: *const ActionMap, out: []ActionBinding) usize {
-        return self.copyBindings(out);
+    pub fn snapshot(self: *const ActionMap) ActionBindings {
+        var out = ActionBindings{};
+        out.count = self.copyBindings(out.entries[0..]);
+        return out;
     }
 
-    pub fn replaceBindings(self: *ActionMap, bindings: []const ActionBinding) !void {
+    fn replaceBindings(self: *ActionMap, bindings: []const ActionBinding) !void {
         if (bindings.len > max_actions) return error.ActionMapFull;
 
         for (&self.actions) |*action| {
@@ -249,7 +257,11 @@ pub const ActionMap = struct {
         try self.replaceBindings(bindings);
     }
 
-    pub fn actionCodes(self: *const ActionMap, name: []const u8) ?[]const device.InputCode {
+    pub fn loadSnapshot(self: *ActionMap, bindings: *const ActionBindings) !void {
+        try self.replaceBindings(bindings.slice());
+    }
+
+    pub fn actionCodes(self: *const ActionMap, name: []const u8) ?[]const BoundInput {
         const action = self.findByNameConst(name) orelse return null;
         if (!action.enabled or action.kind != .codes) return null;
         return action.codes[0..action.code_count];
@@ -280,8 +292,8 @@ pub const ActionMap = struct {
 
             switch (action.kind) {
                 .codes => {
-                    for (action.codes[0..action.code_count], 0..) |bound_code, index| {
-                        if (bound_code == code) return .{ .action_name = action_name, .slot = .code, .index = index };
+                    for (action.codes[0..action.code_count], 0..) |bound_input, index| {
+                        if (bound_input.code == code) return .{ .action_name = action_name, .slot = .code, .index = index };
                     }
                 },
                 .axis_2d => {
@@ -332,7 +344,7 @@ pub const ActionMap = struct {
         while (device_index < self.device_count) : (device_index += 1) {
             var code_index: usize = 0;
             while (code_index < action.code_count) : (code_index += 1) {
-                out += deviceAxis1d(input_system, self.devices[device_index], action.codes[code_index]) orelse 0;
+                out += deviceAxis1d(input_system, self.devices[device_index], action.codes[code_index].code) orelse 0;
             }
         }
         return clamp(out, -1, 1);
@@ -351,7 +363,7 @@ pub const ActionMap = struct {
         while (device_index < self.device_count) : (device_index += 1) {
             var code_index: usize = 0;
             while (code_index < action.code_count) : (code_index += 1) {
-                if (deviceAxis2d(input_system, self.devices[device_index], action.codes[code_index])) |value| {
+                if (deviceAxis2d(input_system, self.devices[device_index], action.codes[code_index].code)) |value| {
                     out.x += value.x;
                     out.y += value.y;
                 }
@@ -371,15 +383,16 @@ pub const ActionMap = struct {
         while (device_index < self.device_count) : (device_index += 1) {
             var code_index: usize = 0;
             while (code_index < action.code_count) : (code_index += 1) {
-                if (deviceCodeQuery(input_system, self.devices[device_index], action.codes[code_index], query, action.options)) return true;
+                if (deviceCodeQuery(input_system, self.devices[device_index], action.codes[code_index], query)) return true;
             }
         }
         return false;
     }
 
-    fn deviceCodeQuery(input_system: anytype, view: *const device.DeviceView, code: device.InputCode, query: Query, options: ActionOptions) bool {
+    fn deviceCodeQuery(input_system: anytype, view: *const device.DeviceView, input_binding: BoundInput, query: Query) bool {
         const keyboard = input_system.keyboard();
         const mouse = input_system.mouse();
+        const code = input_binding.code;
 
         if (view == &keyboard.view) {
             return buttonQuery(keyboard.button(code), keyboard.prevButton(code), query);
@@ -392,9 +405,10 @@ pub const ActionMap = struct {
         var slot: usize = 0;
         while (input_system.gamepad(slot)) |gamepad| : (slot += 1) {
             if (view != &gamepad.view) continue;
+            const threshold = activationThreshold(input_binding);
             return buttonQuery(
-                gamepad.buttonWithThreshold(code, options.axis_button_threshold),
-                gamepad.prevButtonWithThreshold(code, options.axis_button_threshold),
+                gamepad.buttonWithThreshold(code, threshold),
+                gamepad.prevButtonWithThreshold(code, threshold),
                 query,
             );
         }
@@ -470,7 +484,6 @@ pub const ActionMap = struct {
         const action = self.findByName(binding.name) orelse try self.createSlot(binding.name);
         action.enabled = binding.enabled;
         action.kind = binding.kind;
-        action.options = normalizedOptions(binding.options);
         action.code_count = 0;
         action.left_count = 0;
         action.right_count = 0;
@@ -483,6 +496,7 @@ pub const ActionMap = struct {
                 if (binding.enabled) {
                     const codes = binding.codes orelse return error.InvalidActionCodes;
                     if (codes.len == 0 or codes.len > max_codes_per_action) return error.InvalidActionCodes;
+                    for (codes) |input_binding| try validateBoundInput(input_binding);
                     action.code_count = codes.len;
                     @memcpy(action.codes[0..codes.len], codes);
                 }
@@ -514,32 +528,28 @@ pub const ActionMap = struct {
             self,
             input_system,
             action.left_codes[0..action.left_count],
-            action.options,
         );
         out.x += activeCodeValue(
             self,
             input_system,
             action.right_codes[0..action.right_count],
-            action.options,
         );
         out.y += activeCodeValue(
             self,
             input_system,
             action.up_codes[0..action.up_count],
-            action.options,
         );
         out.y -= activeCodeValue(
             self,
             input_system,
             action.down_codes[0..action.down_count],
-            action.options,
         );
 
         var device_index: usize = 0;
         while (device_index < self.device_count) : (device_index += 1) {
             var vector_index: usize = 0;
             while (vector_index < action.vector_count) : (vector_index += 1) {
-                if (deviceAxis2d(input_system, self.devices[device_index], action.vector_codes[vector_index])) |value| {
+                if (deviceAxis2d(input_system, self.devices[device_index], action.vector_codes[vector_index].code)) |value| {
                     out.x += value.x;
                     out.y += value.y;
                 }
@@ -552,44 +562,20 @@ pub const ActionMap = struct {
         return out;
     }
 
-    fn codeDown(
-        self: *const ActionMap,
-        input_system: anytype,
-        code: device.InputCode,
-        options: ActionOptions,
-    ) bool {
-        var device_index: usize = 0;
-        while (device_index < self.device_count) : (device_index += 1) {
-            if (deviceCodeQuery(
-                input_system,
-                self.devices[device_index],
-                code,
-                .down,
-                options,
-            )) return true;
-        }
-        return false;
-    }
-
-    fn codeValue(
-        self: *const ActionMap,
-        input_system: anytype,
-        code: device.InputCode,
-        options: ActionOptions,
-    ) device.Axis1d {
+    fn codeValue(self: *const ActionMap, input_system: anytype, input_binding: BoundInput) device.Axis1d {
         var out: device.Axis1d = 0;
         var device_index: usize = 0;
         while (device_index < self.device_count) : (device_index += 1) {
             const value = deviceAxis1d(
                 input_system,
                 self.devices[device_index],
-                code,
+                input_binding.code,
             ) orelse continue;
 
             if (value > out) out = value;
         }
 
-        if (out <= options.axis_button_threshold) return 0;
+        if (out <= activationThreshold(input_binding)) return 0;
         return clamp(out, 0, 1);
     }
 };
@@ -612,7 +598,6 @@ fn copyAction(out: *Action, source: *const Action) void {
     out.up_count = source.up_count;
     out.down_count = source.down_count;
     out.vector_count = source.vector_count;
-    out.options = source.options;
     if (source.code_count > 0) {
         @memcpy(out.codes[0..source.code_count], source.codes[0..source.code_count]);
     }
@@ -653,7 +638,6 @@ fn actionBinding(action: *const Action) ActionBinding {
         .name = cString(action.name[0..]),
         .enabled = action.enabled,
         .kind = action.kind,
-        .options = action.options,
         .codes = if (action.kind == .codes) sliceIfAny(action.codes[0..], action.code_count) else null,
         .left = if (action.kind == .axis_2d) sliceIfAny(action.left_codes[0..], action.left_count) else null,
         .right = if (action.kind == .axis_2d) sliceIfAny(action.right_codes[0..], action.right_count) else null,
@@ -663,49 +647,33 @@ fn actionBinding(action: *const Action) ActionBinding {
     };
 }
 
-fn copyBindingCodes(dst: []device.InputCode, src: ?[]const device.InputCode) !usize {
+fn copyBindingCodes(dst: []BoundInput, src: ?[]const BoundInput) !usize {
     const codes = src orelse return 0;
     if (codes.len == 0 or codes.len > dst.len) return error.InvalidActionCodes;
+    for (codes) |code| validateBoundInput(code) catch return error.InvalidActionCodes;
     @memcpy(dst[0..codes.len], codes);
     return codes.len;
 }
 
-fn sliceIfAny(codes: []const device.InputCode, count: usize) ?[]const device.InputCode {
+fn sliceIfAny(codes: []const BoundInput, count: usize) ?[]const BoundInput {
     if (count == 0) return null;
     return codes[0..count];
 }
 
-fn findCode(codes: []const device.InputCode, needle: device.InputCode) ?usize {
+fn findCode(codes: []const BoundInput, needle: device.InputCode) ?usize {
     for (codes, 0..) |code, index| {
-        if (code == needle) return index;
+        if (code.code == needle) return index;
     }
     return null;
 }
 
-fn activeCodeValue(self: *const ActionMap, input_system: anytype, codes: []const device.InputCode, options: ActionOptions) f32 {
+fn activeCodeValue(self: *const ActionMap, input_system: anytype, codes: []const BoundInput) f32 {
     var out: f32 = 0;
     for (codes) |code| {
-        const value = self.codeValue(input_system, code, options);
+        const value = self.codeValue(input_system, code);
         if (value > out) out = value;
     }
     return out;
-}
-
-fn axisButtonQuery(current: ?f32, previous: ?f32, query: Query, options: ActionOptions) bool {
-    const value = current orelse return false;
-    const threshold = options.axis_button_threshold;
-    return switch (query) {
-        .down => value > threshold,
-        .up => value <= threshold,
-        .pressed => blk: {
-            const prev = previous orelse return false;
-            break :blk prev <= threshold and value > threshold;
-        },
-        .released => blk: {
-            const prev = previous orelse return false;
-            break :blk prev > threshold and value <= threshold;
-        },
-    };
 }
 
 fn buttonQuery(current: ?bool, previous: ?bool, query: Query) bool {
@@ -724,10 +692,18 @@ fn buttonQuery(current: ?bool, previous: ?bool, query: Query) bool {
     };
 }
 
-fn normalizedOptions(options: ActionOptions) ActionOptions {
-    return .{
-        .axis_button_threshold = clamp(options.axis_button_threshold, 0, 1),
-    };
+fn activationThreshold(input_binding: BoundInput) f32 {
+    return clamp(
+        input_binding.activation_threshold orelse device.GamepadDevice.default_activation_threshold,
+        0,
+        1,
+    );
+}
+
+fn validateBoundInput(input_binding: BoundInput) !void {
+    if (input_binding.activation_threshold) |threshold| {
+        _ = clamp(threshold, 0, 1);
+    }
 }
 
 fn clamp(value: f32, min: f32, max: f32) f32 {
@@ -747,7 +723,7 @@ test "action map set attaches devices and stores action codes" {
 
     var map = ActionMap.init();
     try map.attachDevice(fake_keyboard);
-    try map.set("jump", &.{.key_space}, null);
+    try map.set("jump", &.{.{ .code = .key_space }});
 
     const action = map.findByName("jump") orelse return error.ActionNotFound;
     try std.testing.expectEqual(@as(usize, 1), map.device_count);
@@ -763,11 +739,17 @@ test "action map evaluates codes against attached devices" {
     var gamepad_map = ActionMap.init();
 
     try keyboard_map.attachDevice(input_system.keyboard());
-    try keyboard_map.set("jump", &.{ .key_space, .gamepad_face_south }, null);
+    try keyboard_map.set("jump", &.{
+        .{ .code = .key_space },
+        .{ .code = .gamepad_face_south },
+    });
 
     const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
     try gamepad_map.attachDevice(gamepad);
-    try gamepad_map.set("jump", &.{ .key_space, .gamepad_face_south }, null);
+    try gamepad_map.set("jump", &.{
+        .{ .code = .key_space },
+        .{ .code = .gamepad_face_south },
+    });
 
     input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_space)] = .down;
     gamepad.buttons[0] = .down;
@@ -786,13 +768,13 @@ test "action map set null disables reset restores and remove deletes" {
     var defaults = ActionMap.init();
     var map = ActionMap.init();
 
-    try defaults.set("jump", &.{.key_space}, null);
+    try defaults.set("jump", &.{.{ .code = .key_space }});
     try map.attachDevice(input_system.keyboard());
     try map.reset("jump", &defaults);
     input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_space)] = .down;
 
     try std.testing.expect(map.down(&input_system, "jump"));
-    try map.set("jump", null, null);
+    try map.set("jump", null);
     try std.testing.expect(!map.down(&input_system, "jump"));
 
     try map.reset("jump", &defaults);
@@ -806,21 +788,21 @@ test "action map reset all copies actions from default map" {
     var defaults = ActionMap.init();
     var map = ActionMap.init();
 
-    try defaults.set("jump", &.{.key_space}, null);
+    try defaults.set("jump", &.{.{ .code = .key_space }});
     try defaults.set2d("move", .{
-        .left = &.{.key_a},
-        .right = &.{.key_d},
-        .vectors = &.{.gamepad_left_stick},
-    }, null);
+        .left = &.{.{ .code = .key_a }},
+        .right = &.{.{ .code = .key_d }},
+        .vectors = &.{.{ .code = .gamepad_left_stick }},
+    });
 
-    try map.set("jump", &.{.key_j}, null);
-    try map.set("extra", &.{.key_escape}, null);
+    try map.set("jump", &.{.{ .code = .key_j }});
+    try map.set("extra", &.{.{ .code = .key_escape }});
     try map.resetAll(&defaults);
 
     try std.testing.expectEqual(@as(usize, 2), map.actionCount());
-    try std.testing.expectEqual(device.InputCode.key_space, map.actionCodes("jump").?[0]);
+    try std.testing.expectEqual(device.InputCode.key_space, map.actionCodes("jump").?[0].code);
     try std.testing.expect(map.actionCodes("extra") == null);
-    try std.testing.expectEqual(device.InputCode.key_a, map.action2d("move").?.left.?[0]);
+    try std.testing.expectEqual(device.InputCode.key_a, map.action2d("move").?.left.?[0].code);
 }
 
 test "action map combines buttons and directional axes" {
@@ -832,7 +814,10 @@ test "action map combines buttons and directional axes" {
     try map.attachDevice(input_system.keyboard());
     const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
     try map.attachDevice(gamepad);
-    try map.set("forward", &.{ .key_w, .gamepad_left_stick_up }, null);
+    try map.set("forward", &.{
+        .{ .code = .key_w },
+        .{ .code = .gamepad_left_stick_up },
+    });
 
     gamepad.left_stick.y = 0.75;
     try std.testing.expect(map.down(&input_system, "forward"));
@@ -855,7 +840,10 @@ test "action map combines axis2d values" {
 
     const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
     try map.attachDevice(gamepad);
-    try map.set("move", &.{ .gamepad_left_stick, .gamepad_right_stick }, null);
+    try map.set("move", &.{
+        .{ .code = .gamepad_left_stick },
+        .{ .code = .gamepad_right_stick },
+    });
 
     gamepad.left_stick = .{ .x = 0.25, .y = 0.5 };
     gamepad.right_stick = .{ .x = 0.9, .y = -0.25 };
@@ -875,12 +863,12 @@ test "action map 2d action combines keyboard and stick" {
     const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
     try map.attachDevice(gamepad);
     try map.set2d("move", .{
-        .left = &.{.key_a},
-        .right = &.{.key_d},
-        .up = &.{.key_w},
-        .down = &.{.key_s},
-        .vectors = &.{.gamepad_left_stick},
-    }, null);
+        .left = &.{.{ .code = .key_a }},
+        .right = &.{.{ .code = .key_d }},
+        .up = &.{.{ .code = .key_w }},
+        .down = &.{.{ .code = .key_s }},
+        .vectors = &.{.{ .code = .gamepad_left_stick }},
+    });
 
     input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_d)] = .down;
     gamepad.left_stick = .{ .x = -0.5, .y = 0.5 };
@@ -899,11 +887,11 @@ test "action map 2d action keeps analog directional magnitude" {
     const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
     try map.attachDevice(gamepad);
     try map.set2d("move", .{
-        .left = &.{.gamepad_right_stick_left},
-        .right = &.{.gamepad_right_stick_right},
-        .up = &.{.gamepad_left_stick_up},
-        .down = &.{.gamepad_left_stick_down},
-    }, .{ .axis_button_threshold = 0.1 });
+        .left = &.{.{ .code = .gamepad_right_stick_left, .activation_threshold = 0.1 }},
+        .right = &.{.{ .code = .gamepad_right_stick_right, .activation_threshold = 0.1 }},
+        .up = &.{.{ .code = .gamepad_left_stick_up, .activation_threshold = 0.1 }},
+        .down = &.{.{ .code = .gamepad_left_stick_down, .activation_threshold = 0.1 }},
+    });
 
     gamepad.left_stick = .{ .x = 0, .y = 0.6 };
     gamepad.right_stick = .{ .x = -0.25, .y = 0 };
@@ -923,8 +911,11 @@ test "action map 2d action uses strongest code per direction" {
     const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
     try map.attachDevice(gamepad);
     try map.set2d("move", .{
-        .up = &.{ .key_w, .gamepad_left_stick_up },
-    }, .{ .axis_button_threshold = 0.1 });
+        .up = &.{
+            .{ .code = .key_w },
+            .{ .code = .gamepad_left_stick_up, .activation_threshold = 0.1 },
+        },
+    });
 
     input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_w)] = .down;
     gamepad.left_stick = .{ .x = 0, .y = 0.4 };
@@ -942,8 +933,8 @@ test "action map 2d action threshold zeros weak directional axis" {
     const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
     try map.attachDevice(gamepad);
     try map.set2d("move", .{
-        .up = &.{.gamepad_left_stick_up},
-    }, .{ .axis_button_threshold = 0.35 });
+        .up = &.{.{ .code = .gamepad_left_stick_up, .activation_threshold = 0.35 }},
+    });
 
     gamepad.left_stick = .{ .x = 0, .y = 0.3 };
 
@@ -959,9 +950,9 @@ test "action map 2d action preserves digital diagonals" {
 
     try map.attachDevice(input_system.keyboard());
     try map.set2d("move", .{
-        .right = &.{.key_d},
-        .up = &.{.key_w},
-    }, null);
+        .right = &.{.{ .code = .key_d }},
+        .up = &.{.{ .code = .key_w }},
+    });
 
     input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_d)] = .down;
     input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_w)] = .down;
@@ -973,24 +964,27 @@ test "action map 2d action preserves digital diagonals" {
 
 test "action map exports bindings for save load" {
     var map = ActionMap.init();
-    var out: [max_actions]ActionBinding = undefined;
 
-    try map.set("jump", &.{ .key_space, .gamepad_face_south }, null);
+    try map.set("jump", &.{
+        .{ .code = .key_space },
+        .{ .code = .gamepad_face_south },
+    });
     try map.set2d("move", .{
-        .left = &.{.key_a},
-        .right = &.{.key_d},
-        .up = &.{.key_w},
-        .down = &.{.key_s},
-        .vectors = &.{.gamepad_left_stick},
-    }, null);
+        .left = &.{.{ .code = .key_a }},
+        .right = &.{.{ .code = .key_d }},
+        .up = &.{.{ .code = .key_w }},
+        .down = &.{.{ .code = .key_s }},
+        .vectors = &.{.{ .code = .gamepad_left_stick }},
+    });
 
-    const count = map.exportBindings(out[0..]);
-    try std.testing.expectEqual(@as(usize, 2), count);
-    try std.testing.expectEqualStrings("jump", out[0].name);
-    try std.testing.expectEqual(ActionKind.codes, out[0].kind);
-    try std.testing.expectEqual(device.InputCode.gamepad_face_south, out[0].codes.?[1]);
-    try std.testing.expectEqual(ActionKind.axis_2d, out[1].kind);
-    try std.testing.expectEqual(device.InputCode.key_s, out[1].down.?[0]);
+    const out = map.snapshot();
+    const bindings = out.slice();
+    try std.testing.expectEqual(@as(usize, 2), bindings.len);
+    try std.testing.expectEqualStrings("jump", bindings[0].name);
+    try std.testing.expectEqual(ActionKind.codes, bindings[0].kind);
+    try std.testing.expectEqual(device.InputCode.gamepad_face_south, bindings[0].codes.?[1].code);
+    try std.testing.expectEqual(ActionKind.axis_2d, bindings[1].kind);
+    try std.testing.expectEqual(device.InputCode.key_s, bindings[1].down.?[0].code);
 }
 
 test "action map imports bindings from saved data" {
@@ -1002,16 +996,19 @@ test "action map imports bindings from saved data" {
         .{
             .name = "jump",
             .kind = .codes,
-            .codes = &.{ .key_space, .gamepad_face_south },
+            .codes = &.{
+                .{ .code = .key_space },
+                .{ .code = .gamepad_face_south },
+            },
         },
         .{
             .name = "move",
             .kind = .axis_2d,
-            .left = &.{.key_a},
-            .right = &.{.key_d},
-            .up = &.{.key_w},
-            .down = &.{.key_s},
-            .vectors = &.{.gamepad_left_stick},
+            .left = &.{.{ .code = .key_a }},
+            .right = &.{.{ .code = .key_d }},
+            .up = &.{.{ .code = .key_w }},
+            .down = &.{.{ .code = .key_s }},
+            .vectors = &.{.{ .code = .gamepad_left_stick }},
         },
     };
 
@@ -1033,12 +1030,15 @@ test "action map imports bindings from saved data" {
 test "action map finds binding conflicts" {
     var map = ActionMap.init();
 
-    try map.set("jump", &.{ .key_space, .gamepad_face_south }, null);
+    try map.set("jump", &.{
+        .{ .code = .key_space },
+        .{ .code = .gamepad_face_south },
+    });
     try map.set2d("move", .{
-        .left = &.{.key_a},
-        .right = &.{.key_d},
-        .vectors = &.{.gamepad_left_stick},
-    }, null);
+        .left = &.{.{ .code = .key_a }},
+        .right = &.{.{ .code = .key_d }},
+        .vectors = &.{.{ .code = .gamepad_left_stick }},
+    });
 
     const jump_conflict = map.findConflict(.key_space, null) orelse return error.MissingConflict;
     try std.testing.expectEqualStrings("jump", jump_conflict.action_name);
@@ -1052,7 +1052,7 @@ test "action map finds binding conflicts" {
     try std.testing.expect(map.findConflict(.key_space, "jump") == null);
 }
 
-test "action map axis button threshold is configurable per action" {
+test "action map activation threshold is configurable per binding" {
     const input = @import("input.zig");
 
     var input_system = input.InputSystem{};
@@ -1060,7 +1060,7 @@ test "action map axis button threshold is configurable per action" {
 
     const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
     try map.attachDevice(gamepad);
-    try map.set("forward", &.{.gamepad_left_stick_up}, .{ .axis_button_threshold = 0.25 });
+    try map.set("forward", &.{.{ .code = .gamepad_left_stick_up, .activation_threshold = 0.25 }});
 
     gamepad.prev_left_stick.y = 0.2;
     gamepad.left_stick.y = 0.3;
@@ -1076,7 +1076,7 @@ test "action map up ignores incompatible codes" {
     var map = ActionMap.init();
 
     try map.attachDevice(input_system.keyboard());
-    try map.set("move", &.{.gamepad_left_stick}, null);
+    try map.set("move", &.{.{ .code = .gamepad_left_stick }});
 
     try std.testing.expect(!map.up(&input_system, "move"));
 }

@@ -7,29 +7,29 @@ const max_file_size = 64 * 1024;
 
 pub fn buildDefaultActions(actions: *input.ActionMap) !void {
     try actions.set2d("move", .{
-        .left = &.{.key_a},
-        .right = &.{.key_d},
-        .up = &.{.key_w},
-        .down = &.{.key_s},
-        .vectors = &.{.gamepad_left_stick},
-    }, null);
+        .left = &.{.{ .code = .key_a }},
+        .right = &.{.{ .code = .key_d }},
+        .up = &.{.{ .code = .key_w }},
+        .down = &.{.{ .code = .key_s }},
+        .vectors = &.{.{ .code = .gamepad_left_stick }},
+    });
     try actions.set("jump", &.{
-        .key_space,
-        .gamepad_face_south,
-    }, null);
+        .{ .code = .key_space },
+        .{ .code = .gamepad_face_south },
+    });
     try actions.set("fire", &.{
-        .mouse_left,
-        .gamepad_right_trigger,
-    }, .{ .axis_button_threshold = 0.1 });
+        .{ .code = .mouse_left },
+        .{ .code = .gamepad_right_trigger, .activation_threshold = 0.1 },
+    });
     try actions.set("aim", &.{
-        .mouse_right,
-        .gamepad_left_trigger,
-    }, .{ .axis_button_threshold = 0.1 });
+        .{ .code = .mouse_right },
+        .{ .code = .gamepad_left_trigger, .activation_threshold = 0.1 },
+    });
     try actions.set("pause", &.{
-        .key_escape,
-        .gamepad_start,
-    }, null);
-    try actions.set("look", &.{.gamepad_right_stick}, null);
+        .{ .code = .key_escape },
+        .{ .code = .gamepad_start },
+    });
+    try actions.set("look", &.{.{ .code = .gamepad_right_stick }});
 }
 
 pub fn attachDefaultDevices(state: *input.InputSystem, actions: *input.ActionMap) !void {
@@ -47,8 +47,7 @@ pub fn updateDefaultDevices(state: *input.InputSystem) !void {
 }
 
 pub fn save(io: std.Io, path: []const u8, actions: *const input.ActionMap) !void {
-    var bindings: [input.action_map.max_actions]input.ActionBinding = undefined;
-    const count = actions.exportBindings(bindings[0..]);
+    const bindings = actions.snapshot();
 
     const file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
     defer file.close(io);
@@ -57,7 +56,7 @@ pub fn save(io: std.Io, path: []const u8, actions: *const input.ActionMap) !void
     var writer = file.writer(io, &buffer);
     const out = &writer.interface;
 
-    try std.json.Stringify.value(bindings[0..count], .{
+    try std.json.Stringify.value(bindings.slice(), .{
         .emit_null_optional_fields = false,
     }, out);
     try out.writeByte('\n');
@@ -79,7 +78,7 @@ pub fn load(io: std.Io, path: []const u8, allocator: std.mem.Allocator, actions:
     );
     defer parsed.deinit();
 
-    if (parsed.value.len > input.action_map.max_actions) return error.ActionMapFull;
+    if (parsed.value.len > input.max_actions) return error.ActionMapFull;
     try actions.importBindings(parsed.value);
     return true;
 }

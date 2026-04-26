@@ -172,13 +172,13 @@ test "gamepad 1d axes can be queried as buttons" {
     try std.testing.expect(pad.down(.gamepad_left_stick_up));
 }
 
-test "gamepad axis button threshold is configurable" {
+test "gamepad activation threshold is configurable" {
     var pad = GamepadDevice.init(0);
 
     pad.left_trigger_value = 0.4;
     try std.testing.expect(!pad.down(.gamepad_left_trigger));
 
-    pad.setAxisButtonThreshold(0.3);
+    pad.setActivationThreshold(0.3);
     try std.testing.expect(pad.down(.gamepad_left_trigger));
     try std.testing.expect(pad.buttonWithThreshold(.gamepad_left_trigger, 0.5) == false);
 }

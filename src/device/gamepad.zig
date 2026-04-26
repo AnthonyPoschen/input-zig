@@ -6,7 +6,7 @@ const Axis1d = common.Axis1d;
 const ButtonState = common.ButtonState;
 const InputCode = input_code.InputCode;
 
-pub const default_axis_button_threshold: f32 = 0.5;
+pub const default_activation_threshold: f32 = 0.5;
 pub const default_stick_deadzone: f32 = 0.04;
 pub const GamepadStick = common.Axis2d;
 
@@ -61,7 +61,7 @@ pub const GamepadDevice = struct {
     right_stick_deadzone: f32 = default_stick_deadzone,
     left_trigger_deadzone: f32 = 0,
     right_trigger_deadzone: f32 = 0,
-    axis_button_threshold: f32 = default_axis_button_threshold,
+    activation_threshold: f32 = default_activation_threshold,
 
     pub fn init(slot_index: usize) GamepadDevice {
         var name = [_]u8{0} ** common.max_name_len;
@@ -150,7 +150,7 @@ pub const GamepadDevice = struct {
     }
 
     pub fn button(self: *const GamepadDevice, code: InputCode) ?bool {
-        return self.buttonWithThreshold(code, self.axis_button_threshold);
+        return self.buttonWithThreshold(code, self.activation_threshold);
     }
 
     pub fn buttonWithThreshold(self: *const GamepadDevice, code: InputCode, threshold: f32) ?bool {
@@ -163,7 +163,7 @@ pub const GamepadDevice = struct {
     }
 
     pub fn prevButton(self: *const GamepadDevice, code: InputCode) ?bool {
-        return self.prevButtonWithThreshold(code, self.axis_button_threshold);
+        return self.prevButtonWithThreshold(code, self.activation_threshold);
     }
 
     pub fn prevButtonWithThreshold(self: *const GamepadDevice, code: InputCode, threshold: f32) ?bool {
@@ -223,8 +223,8 @@ pub const GamepadDevice = struct {
         self.right_trigger_deadzone = clamp(deadzone, 0, 1);
     }
 
-    pub fn setAxisButtonThreshold(self: *GamepadDevice, threshold: f32) void {
-        self.axis_button_threshold = clamp(threshold, 0, 1);
+    pub fn setActivationThreshold(self: *GamepadDevice, threshold: f32) void {
+        self.activation_threshold = clamp(threshold, 0, 1);
     }
 
     pub fn setDeadzone(self: *GamepadDevice, code: InputCode, deadzone: f32) !void {

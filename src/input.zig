@@ -1,6 +1,6 @@
 const std = @import("std");
 const device = @import("device.zig");
-pub const action_map = @import("action_map.zig");
+const action_map = @import("action_map.zig");
 
 pub const Axis1d = device.Axis1d;
 pub const Axis2d = device.Axis2d;
@@ -16,7 +16,11 @@ pub const WindowRect = device.WindowRect;
 pub const InputCode = device.InputCode;
 pub const Backend = @import("platform/mod.zig").Backend;
 pub const selectedBackend = @import("platform/mod.zig").selectedBackend;
+pub const max_actions = action_map.max_actions;
+pub const max_action_name_len = action_map.max_action_name_len;
+pub const BoundInput = action_map.BoundInput;
 pub const ActionBinding = action_map.ActionBinding;
+pub const ActionBindings = action_map.ActionBindings;
 pub const ActionKind = action_map.ActionKind;
 pub const ActionMap = action_map.ActionMap;
 pub const Action2dBinding = action_map.Action2dBinding;

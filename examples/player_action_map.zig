@@ -21,29 +21,29 @@ fn setupPlayerActions(input: *input_lib.InputSystem, actions: *input_lib.ActionM
     });
 
     try actions.set2d("move", .{
-        .left = &.{.key_a},
-        .right = &.{.key_d},
-        .up = &.{.key_w},
-        .down = &.{.key_s},
-        .vectors = &.{.gamepad_left_stick},
-    }, null);
+        .left = &.{.{ .code = .key_a }},
+        .right = &.{.{ .code = .key_d }},
+        .up = &.{.{ .code = .key_w }},
+        .down = &.{.{ .code = .key_s }},
+        .vectors = &.{.{ .code = .gamepad_left_stick }},
+    });
     try actions.set("jump", &.{
-        .key_space,
-        .gamepad_face_south,
-    }, null);
+        .{ .code = .key_space },
+        .{ .code = .gamepad_face_south },
+    });
     try actions.set("fire", &.{
-        .mouse_left,
-        .gamepad_right_trigger,
-    }, .{ .axis_button_threshold = 0.1 });
+        .{ .code = .mouse_left },
+        .{ .code = .gamepad_right_trigger, .activation_threshold = 0.1 },
+    });
     try actions.set("aim", &.{
-        .mouse_right,
-        .gamepad_left_trigger,
-    }, .{ .axis_button_threshold = 0.1 });
+        .{ .code = .mouse_right },
+        .{ .code = .gamepad_left_trigger, .activation_threshold = 0.1 },
+    });
     try actions.set("pause", &.{
-        .key_escape,
-        .gamepad_start,
-    }, null);
-    try actions.set("look", &.{.gamepad_right_stick}, null);
+        .{ .code = .key_escape },
+        .{ .code = .gamepad_start },
+    });
+    try actions.set("look", &.{.{ .code = .gamepad_right_stick }});
 
     try gamepad.setDeadzone(.gamepad_left_stick, 0.05);
     try gamepad.setDeadzone(.gamepad_right_stick, 0.05);
