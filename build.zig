@@ -98,6 +98,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+
         translate_c_wl.addIncludePath(b.path("src/platform"));
         const c_module_wl = translate_c_wl.createModule();
 
