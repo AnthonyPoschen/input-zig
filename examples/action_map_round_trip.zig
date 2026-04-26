@@ -1,5 +1,6 @@
 const std = @import("std");
 const input = @import("input");
+const cli_compat = @import("cli_compat");
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
 const file_name = "action_bindings_round_trip.json";
@@ -43,13 +44,13 @@ fn attachDevices(state: *input.InputSystem, actions: *input.ActionMap) !void {
     });
 }
 
-fn save(io: std.Io, path: []const u8, actions: *const input.ActionMap) !void {
+fn save(runtime: *cli_compat.Runtime, path: []const u8, actions: *const input.ActionMap) !void {
     const bindings = actions.snapshot();
-    const file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
-    defer file.close(io);
+    const file = try runtime.createFile(path);
+    defer runtime.closeFile(file);
 
     var buffer: [4096]u8 = undefined;
-    var writer = file.writer(io, &buffer);
+    var writer = runtime.fileWriter(file, &buffer);
     const out = &writer.interface;
 
     try std.json.Stringify.value(bindings.slice(), .{
@@ -59,8 +60,12 @@ fn save(io: std.Io, path: []const u8, actions: *const input.ActionMap) !void {
     try out.flush();
 }
 
-fn load(io: std.Io, path: []const u8, allocator: std.mem.Allocator, actions: *input.ActionMap) !bool {
-    const contents = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_file_size)) catch |err| switch (err) {
+fn load(runtime: *cli_compat.Runtime, path: []const u8, allocator: std.mem.Allocator, actions: *input.ActionMap) !bool {
+    const contents = runtime.readFileAlloc(
+        allocator,
+        path,
+        max_file_size,
+    ) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };
@@ -107,9 +112,9 @@ fn parseUsize(text: []const u8) !usize {
     return out;
 }
 
-fn maybeHandleCommands(io: std.Io, actions: *input.ActionMap, defaults: *const input.ActionMap, state: *input.InputSystem, status: *Status) !void {
+fn maybeHandleCommands(runtime: *cli_compat.Runtime, actions: *input.ActionMap, defaults: *const input.ActionMap, state: *input.InputSystem, status: *Status) !void {
     if (actions.pressed(state, "save_bindings")) {
-        try save(io, file_name, actions);
+        try save(runtime, file_name, actions);
         status.last_event = "saved to disk";
     }
 
@@ -190,12 +195,11 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
 
 fn runMain(argc: usize, argv: [*][*:0]u8) !void {
     const config = try parseConfigArgv(argv[0..argc]);
-    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime = cli_compat.Runtime.init();
+    defer runtime.deinit();
 
     var stdout_buffer: [8192]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
+    var stdout = runtime.stdoutWriter(&stdout_buffer);
     const writer = &stdout.interface;
 
     var state = input.InputSystem{};
@@ -205,7 +209,7 @@ fn runMain(argc: usize, argv: [*][*:0]u8) !void {
     var actions = defaults;
     var status = Status{};
     status.loaded_from_disk = try load(
-        io,
+        &runtime,
         file_name,
         std.heap.page_allocator,
         &actions,
@@ -217,7 +221,13 @@ fn runMain(argc: usize, argv: [*][*:0]u8) !void {
         try state.keyboard().update();
         if (state.gamepad(0)) |gamepad| try gamepad.update();
 
-        try maybeHandleCommands(io, &actions, &defaults, &state, &status);
+        try maybeHandleCommands(
+            &runtime,
+            &actions,
+            &defaults,
+            &state,
+            &status,
+        );
         try render(writer, &actions, &state, status, config.frame_limit);
         try writer.flush();
 
@@ -226,6 +236,6 @@ fn runMain(argc: usize, argv: [*][*:0]u8) !void {
             if (frame_count >= limit) return;
         }
 
-        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+        try runtime.sleep(frame_time_ns);
     }
 }

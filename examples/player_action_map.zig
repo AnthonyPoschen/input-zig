@@ -1,5 +1,6 @@
 const std = @import("std");
 const input_lib = @import("input");
+const cli_compat = @import("cli_compat");
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
 
@@ -125,12 +126,11 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
 
 fn runMain(argc: usize, argv: [*][*:0]u8) !void {
     const config = try parseConfigArgv(argv[0..argc]);
-    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime = cli_compat.Runtime.init();
+    defer runtime.deinit();
 
     var stdout_buffer: [2048]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
+    var stdout = runtime.stdoutWriter(&stdout_buffer);
     const writer = &stdout.interface;
 
     var input = input_lib.InputSystem{};
@@ -152,6 +152,6 @@ fn runMain(argc: usize, argv: [*][*:0]u8) !void {
             if (frame_count >= limit) return;
         }
 
-        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+        try runtime.sleep(frame_time_ns);
     }
 }

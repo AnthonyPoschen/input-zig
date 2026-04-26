@@ -1,6 +1,7 @@
 const std = @import("std");
 const input = @import("input");
 const builtin = @import("builtin");
+const cli_compat = @import("cli_compat");
 const debug_input_wayland = @import("debug_input_wayland.zig");
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
@@ -82,21 +83,21 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
 
 fn runMain(argc: usize, argv: [*][*:0]u8) !c_int {
     const config = try parseConfigArgv(argv[0..argc]);
-    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
 
     if (builtin.os.tag == .linux) {
         if (input.selectedBackend() == .wayland) {
-            try debug_input_wayland.run(config.frame_limit, io);
+            try debug_input_wayland.run(config.frame_limit);
             return 0;
         }
     }
 
+    var runtime = cli_compat.Runtime.init();
+    defer runtime.deinit();
+
     var stdout_buffer: [4096]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
-    var stderr = std.Io.File.stderr().writer(io, &stderr_buffer);
+    var stdout = runtime.stdoutWriter(&stdout_buffer);
+    var stderr = runtime.stderrWriter(&stderr_buffer);
     var stdout_writer = &stdout.interface;
     var stderr_writer = &stderr.interface;
     var state = input.InputSystem{};
@@ -121,7 +122,7 @@ fn runMain(argc: usize, argv: [*][*:0]u8) !c_int {
             if (frame_count >= limit) return 0;
         }
 
-        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+        try runtime.sleep(frame_time_ns);
     }
 }
 

@@ -48,6 +48,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    const cli_compat_module = b.createModule(.{
+        .root_source_file = b.path("src/cli_compat.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
 
     const test_module = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
@@ -127,13 +133,20 @@ pub fn build(b: *std.Build) void {
         .root_module = action_map_round_trip_module,
     });
     debug_module.addImport("input", module);
+    debug_module.addImport("cli_compat", cli_compat_module);
     example_module.addImport("input", module);
+    example_module.addImport("cli_compat", cli_compat_module);
     device_polling_module.addImport("input", module);
+    device_polling_module.addImport("cli_compat", cli_compat_module);
     save_action_map_module.addImport("input", module);
+    save_action_map_module.addImport("cli_compat", cli_compat_module);
     load_action_map_debug_module.addImport("input", module);
+    load_action_map_debug_module.addImport("cli_compat", cli_compat_module);
     action_map_round_trip_module.addImport("input", module);
+    action_map_round_trip_module.addImport("cli_compat", cli_compat_module);
     load_action_map_debug_module.addImport("debug_input_wayland", debug_wayland_module);
     debug_wayland_module.addImport("input", module);
+    debug_wayland_module.addImport("cli_compat", cli_compat_module);
 
     configurePlatformLinking(tests, target.result.os.tag);
     configurePlatformLinking(debug_exe, target.result.os.tag);

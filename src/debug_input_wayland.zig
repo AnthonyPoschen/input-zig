@@ -1,5 +1,6 @@
 const std = @import("std");
 const input = @import("input");
+const cli_compat = @import("cli_compat");
 const builtin = @import("builtin");
 
 const c = @cImport({
@@ -614,11 +615,14 @@ fn writeFixed(writer: *std.Io.Writer, value: f32, comptime scale: i32) !void {
 }
 
 /// Run a native Wayland focused-window debug viewer.
-pub fn run(frame_limit: ?usize, io: std.Io) !void {
+pub fn run(frame_limit: ?usize) !void {
+    var runtime = cli_compat.Runtime.init();
+    defer runtime.deinit();
+
     var stdout_buffer: [16384]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
-    var stderr = std.Io.File.stderr().writer(io, &stderr_buffer);
+    var stdout = runtime.stdoutWriter(&stdout_buffer);
+    var stderr = runtime.stderrWriter(&stderr_buffer);
     var stdout_writer = &stdout.interface;
     var stderr_writer = &stderr.interface;
     var app = App{};
@@ -655,7 +659,7 @@ pub fn run(frame_limit: ?usize, io: std.Io) !void {
             if (frame_count >= limit) return;
         }
 
-        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+        try runtime.sleep(frame_time_ns);
     }
 }
 
@@ -663,13 +667,15 @@ pub fn runFocusedInput(
     comptime Context: type,
     context: *Context,
     frame_limit: ?usize,
-    io: std.Io,
     comptime render: fn (*Context, *input.InputSystem, FocusState, *std.Io.Writer, ?usize) anyerror!void,
 ) !void {
+    var runtime = cli_compat.Runtime.init();
+    defer runtime.deinit();
+
     var stdout_buffer: [16384]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
-    var stderr = std.Io.File.stderr().writer(io, &stderr_buffer);
+    var stdout = runtime.stdoutWriter(&stdout_buffer);
+    var stderr = runtime.stderrWriter(&stderr_buffer);
     var stdout_writer = &stdout.interface;
     var stderr_writer = &stderr.interface;
     var app = App{};
@@ -709,7 +715,7 @@ pub fn runFocusedInput(
             if (frame_count >= limit) return;
         }
 
-        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+        try runtime.sleep(frame_time_ns);
     }
 }
 

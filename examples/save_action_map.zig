@@ -1,6 +1,7 @@
 const std = @import("std");
 const input = @import("input");
 const action_map_json = @import("action_map_json.zig");
+const cli_compat = @import("cli_compat");
 
 pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
     _ = argc;
@@ -13,17 +14,16 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
 }
 
 fn runMain() !void {
-    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime = cli_compat.Runtime.init();
+    defer runtime.deinit();
 
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
+    var stdout = runtime.stdoutWriter(&stdout_buffer);
     const writer = &stdout.interface;
 
     var actions = input.ActionMap.init();
     try action_map_json.buildDefaultActions(&actions);
-    try action_map_json.save(io, action_map_json.file_name, &actions);
+    try action_map_json.save(&runtime, action_map_json.file_name, &actions);
 
     try writer.print("saved {d} actions to {s}\n", .{
         actions.actionCount(),

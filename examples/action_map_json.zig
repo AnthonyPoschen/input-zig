@@ -1,5 +1,6 @@
 const std = @import("std");
 const input = @import("input");
+const cli_compat = @import("cli_compat");
 
 pub const file_name = "action_bindings.json";
 
@@ -46,14 +47,14 @@ pub fn updateDefaultDevices(state: *input.InputSystem) !void {
     if (state.gamepad(0)) |gamepad| try gamepad.update();
 }
 
-pub fn save(io: std.Io, path: []const u8, actions: *const input.ActionMap) !void {
+pub fn save(runtime: *cli_compat.Runtime, path: []const u8, actions: *const input.ActionMap) !void {
     const bindings = actions.snapshot();
 
-    const file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
-    defer file.close(io);
+    const file = try runtime.createFile(path);
+    defer runtime.closeFile(file);
 
     var buffer: [4096]u8 = undefined;
-    var writer = file.writer(io, &buffer);
+    var writer = runtime.fileWriter(file, &buffer);
     const out = &writer.interface;
 
     try std.json.Stringify.value(bindings.slice(), .{
@@ -63,8 +64,12 @@ pub fn save(io: std.Io, path: []const u8, actions: *const input.ActionMap) !void
     try out.flush();
 }
 
-pub fn load(io: std.Io, path: []const u8, allocator: std.mem.Allocator, actions: *input.ActionMap) !bool {
-    const contents = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_file_size)) catch |err| switch (err) {
+pub fn load(runtime: *cli_compat.Runtime, path: []const u8, allocator: std.mem.Allocator, actions: *input.ActionMap) !bool {
+    const contents = runtime.readFileAlloc(
+        allocator,
+        path,
+        max_file_size,
+    ) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };

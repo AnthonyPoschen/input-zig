@@ -2,6 +2,7 @@ const std = @import("std");
 const input = @import("input");
 const builtin = @import("builtin");
 const action_map_json = @import("action_map_json.zig");
+const cli_compat = @import("cli_compat");
 const debug_input_wayland = @import("debug_input_wayland");
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
@@ -26,14 +27,13 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
 
 fn runMain(argc: usize, argv: [*][*:0]u8) !void {
     const config = try parseConfigArgv(argv[0..argc]);
-    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+    var runtime = cli_compat.Runtime.init();
+    defer runtime.deinit();
 
     var stdout_buffer: [8192]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
-    var stderr = std.Io.File.stderr().writer(io, &stderr_buffer);
+    var stdout = runtime.stdoutWriter(&stdout_buffer);
+    var stderr = runtime.stderrWriter(&stderr_buffer);
     const stdout_writer = &stdout.interface;
     const stderr_writer = &stderr.interface;
 
@@ -43,7 +43,7 @@ fn runMain(argc: usize, argv: [*][*:0]u8) !void {
 
     var actions = defaults;
     const loaded = action_map_json.load(
-        io,
+        &runtime,
         action_map_json.file_name,
         std.heap.page_allocator,
         &actions,
@@ -62,7 +62,6 @@ fn runMain(argc: usize, argv: [*][*:0]u8) !void {
             ActionDebugContext,
             &context,
             config.frame_limit,
-            io,
             renderWaylandActionMap,
         );
     }
@@ -91,7 +90,7 @@ fn runMain(argc: usize, argv: [*][*:0]u8) !void {
             if (frame_count >= limit) return;
         }
 
-        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+        try runtime.sleep(frame_time_ns);
     }
 }
 
