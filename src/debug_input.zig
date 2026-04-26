@@ -1,7 +1,7 @@
 const std = @import("std");
 const input = @import("input");
 const builtin = @import("builtin");
-const debug_input_wayland = @import("debug_input_wayland.zig");
+const debug_input_wayland = @import("debug_input_wayland");
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
 
