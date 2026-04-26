@@ -2,14 +2,7 @@ const std = @import("std");
 const input = @import("input");
 const builtin = @import("builtin");
 
-const c = @cImport({
-    @cInclude("sys/mman.h");
-    @cInclude("unistd.h");
-    @cInclude("wayland-client.h");
-    @cInclude("wayland-client-protocol.h");
-    @cInclude("xkbcommon/xkbcommon.h");
-    @cInclude("xdg-shell-client-protocol.h");
-});
+const c = @import("c");
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
 const window_width = 640;

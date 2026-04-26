@@ -1,9 +1,9 @@
 const builtin = @import("builtin");
 const device = @import("../device.zig");
 
-const windows = @import("windows.zig");
-const linux = @import("linux.zig");
-const macos = @import("macos.zig");
+const windows = if (builtin.os.tag == .windows) @import("windows.zig") else struct {};
+const linux = if (builtin.os.tag == .linux) @import("linux.zig") else struct {};
+const macos = if (builtin.os.tag == .macos) @import("macos.zig") else struct {};
 const unsupported = @import("unsupported.zig");
 
 pub const Backend = enum {

@@ -1,9 +1,6 @@
 const device = @import("../device.zig");
 
-const c = @cImport({
-    @cInclude("windows.h");
-    @cInclude("xinput.h");
-});
+const c = @import("c");
 
 const mouse_vks = [_]c_int{ c.VK_LBUTTON, c.VK_RBUTTON, c.VK_MBUTTON, c.VK_XBUTTON1, c.VK_XBUTTON2 };
 

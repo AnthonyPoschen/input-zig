@@ -2,16 +2,7 @@ const std = @import("std");
 const device = @import("../device.zig");
 const platform = @import("mod.zig");
 
-const c = @cImport({
-    @cInclude("errno.h");
-    @cInclude("fcntl.h");
-    @cInclude("linux/joystick.h");
-    @cInclude("sys/ioctl.h");
-    @cInclude("unistd.h");
-    @cInclude("X11/Xlib.h");
-    @cInclude("X11/Xutil.h");
-    @cInclude("X11/keysym.h");
-});
+const c = @import("c");
 
 const LinuxBackend = platform.Backend;
 

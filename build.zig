@@ -49,12 +49,53 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
 
+    if (target.result.os.tag == .linux) {
+        const translate_c = b.addTranslateC(.{
+            .root_source_file = b.path("src/platform/linux_headers.h"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        translate_c.addIncludePath(b.path("src/platform"));
+        const c_module = translate_c.createModule();
+        module.addImport("c", c_module);
+    } else if (target.result.os.tag == .windows) {
+        const translate_c = b.addTranslateC(.{
+            .root_source_file = b.path("src/platform/windows_headers.h"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        const c_module = translate_c.createModule();
+        module.addImport("c", c_module);
+    }
+
     const test_module = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
+    if (target.result.os.tag == .linux) {
+        const translate_c_2 = b.addTranslateC(.{
+            .root_source_file = b.path("src/platform/linux_headers.h"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        translate_c_2.addIncludePath(b.path("src/platform"));
+        const c_module_2 = translate_c_2.createModule();
+        test_module.addImport("c", c_module_2);
+    } else if (target.result.os.tag == .windows) {
+        const translate_c_2 = b.addTranslateC(.{
+            .root_source_file = b.path("src/platform/windows_headers.h"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        const c_module_2 = translate_c_2.createModule();
+        test_module.addImport("c", c_module_2);
+    }
     const debug_module = b.createModule(.{
         .root_source_file = b.path("src/debug_input.zig"),
         .target = target,
@@ -79,13 +120,34 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
-    const debug_wayland_module = b.createModule(.{
-        .root_source_file = b.path("src/debug_input_wayland.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    debug_wayland_module.addIncludePath(b.path("src/platform"));
+    const debug_wayland_module = if (target.result.os.tag == .linux) blk: {
+        const translate_c_wl = b.addTranslateC(.{
+            .root_source_file = b.path("src/platform/wayland_headers.h"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        translate_c_wl.addIncludePath(b.path("src/platform"));
+        const c_module_wl = translate_c_wl.createModule();
+
+        const mod = b.createModule(.{
+            .root_source_file = b.path("src/debug_input_wayland.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        mod.addImport("c", c_module_wl);
+        mod.addIncludePath(b.path("src/platform"));
+        break :blk mod;
+    } else blk: {
+        const mod = b.createModule(.{
+            .root_source_file = b.path("src/platform/wayland_stub.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        break :blk mod;
+    };
     const tests = b.addTest(.{
         .root_module = test_module,
     });
