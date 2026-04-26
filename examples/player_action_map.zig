@@ -1,4 +1,11 @@
+const std = @import("std");
 const input_lib = @import("input");
+
+const frame_time_ns = 100 * std.time.ns_per_ms;
+
+const Config = struct {
+    frame_limit: ?usize = null,
+};
 
 const PlayerInput = struct {
     move: input_lib.Axis2d,
@@ -10,7 +17,6 @@ const PlayerInput = struct {
     look_mouse: input_lib.Axis2d,
 };
 
-/// Configure one player-facing action map across keyboard, mouse, and gamepad.
 fn setupPlayerActions(input: *input_lib.InputSystem, actions: *input_lib.ActionMap) !void {
     const gamepad = input.gamepad(0) orelse unreachable;
 
@@ -47,11 +53,8 @@ fn setupPlayerActions(input: *input_lib.InputSystem, actions: *input_lib.ActionM
 
     try gamepad.setDeadzone(.gamepad_left_stick, 0.05);
     try gamepad.setDeadzone(.gamepad_right_stick, 0.05);
-    try gamepad.setDeadzone(.gamepad_left_trigger, 0.00);
-    try gamepad.setDeadzone(.gamepad_right_trigger, 0.00);
 }
 
-/// Read a player frame from the configured action map.
 fn samplePlayerInput(input: *input_lib.InputSystem, actions: *const input_lib.ActionMap) PlayerInput {
     return .{
         .move = actions.axis2d(input, "move"),
@@ -64,26 +67,80 @@ fn samplePlayerInput(input: *input_lib.InputSystem, actions: *const input_lib.Ac
     };
 }
 
-/// Show the per-frame update shape a consumer would typically use.
-fn sampleFrame(input: *input_lib.InputSystem, actions: *const input_lib.ActionMap) !PlayerInput {
-    const gamepad = input.gamepad(0) orelse unreachable;
+fn parseConfig(process_args: std.process.Args) !Config {
+    var args = std.process.Args.Iterator.init(process_args);
+    defer args.deinit();
+    var config = Config{};
 
-    try input.keyboard().update();
-    try input.mouse().update();
-    try gamepad.update();
+    _ = args.next();
 
-    return samplePlayerInput(input, actions);
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--frames")) {
+            const value = args.next() orelse return error.MissingFrameLimit;
+            config.frame_limit = try parseUsize(value);
+            continue;
+        }
+        return error.InvalidArgument;
+    }
+
+    return config;
 }
 
-/// Build-check a complete player action map example without needing a demo app.
-pub fn main() !void {
+fn parseUsize(text: []const u8) !usize {
+    if (text.len == 0) return error.InvalidFrameLimit;
+    var out: usize = 0;
+    for (text) |byte| {
+        if (byte < '0' or byte > '9') return error.InvalidFrameLimit;
+        out = out * 10 + (byte - '0');
+    }
+    return out;
+}
+
+fn render(writer: *std.Io.Writer, player_input: PlayerInput, frame_limit: ?usize) !void {
+    try writer.writeAll("\x1b[2J\x1b[H");
+    try writer.writeAll("player action map example\n");
+    if (frame_limit) |limit| {
+        try writer.print("frame limit: {d}\n\n", .{limit});
+    } else {
+        try writer.writeAll("frame limit: none\n");
+        try writer.writeAll("ctrl+c to exit\n\n");
+    }
+
+    try writer.print("move        = ({d:.2}, {d:.2})\n", .{ player_input.move.x, player_input.move.y });
+    try writer.print("look_stick  = ({d:.2}, {d:.2})\n", .{ player_input.look_stick.x, player_input.look_stick.y });
+    try writer.print("look_mouse  = ({d:.2}, {d:.2})\n", .{ player_input.look_mouse.x, player_input.look_mouse.y });
+    try writer.print("jump_pressed= {any}\n", .{player_input.jump_pressed});
+    try writer.print("fire_down   = {any}\n", .{player_input.fire_down});
+    try writer.print("aim_down    = {any}\n", .{player_input.aim_down});
+    try writer.print("pause_press = {any}\n", .{player_input.pause_pressed});
+}
+
+pub fn main(init: std.process.Init) !void {
+    const config = try parseConfig(init.minimal.args);
+
+    var stdout_buffer: [2048]u8 = undefined;
+    var stdout = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    const writer = &stdout.interface;
+
     var input = input_lib.InputSystem{};
     var actions = input_lib.ActionMap.init();
-
     try setupPlayerActions(&input, &actions);
 
-    const player_input = samplePlayerInput(&input, &actions);
-    _ = player_input;
+    var frame_count: usize = 0;
+    while (true) {
+        try input.keyboard().update();
+        try input.mouse().update();
+        if (input.gamepad(0)) |pad| try pad.update();
 
-    _ = sampleFrame;
+        const player_input = samplePlayerInput(&input, &actions);
+        try render(writer, player_input, config.frame_limit);
+        try writer.flush();
+
+        frame_count += 1;
+        if (config.frame_limit) |limit| {
+            if (frame_count >= limit) return;
+        }
+
+        try init.io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+    }
 }

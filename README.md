@@ -1,457 +1,198 @@
 # input
 
-`input` is a pull-based input library with a shared device model.
+`input` is a pull-based input library for Zig with:
 
-## Core concepts
+- direct keyboard, mouse, and gamepad polling
+- stable gamepad slots
+- a shared `InputCode` namespace
+- `ActionMap` bindings for mixed-device gameplay input
+- plain JSON save/load for user-editable bindings
 
-- Every input source is a **device view** with:
-  - `id: number`
-  - `kind: enum`
-  - `connected: bool`
-  - fixed-size `name` (`32` chars)
-- Keyboard and mouse are singleton devices today.
-- Gamepads use stable logical slots. A gamepad slot can exist while disconnected
-  so player assignment does not have to follow current enumeration order.
-- Devices expose local state functions:
-  - `down`
-  - `up`
-  - `pressed`
-  - `released`
+## Documentation
 
-`pressed`/`released` are computed from previous vs current frame state.
+- [Device polling guide](docs/device-polling.md)
+- [Action map guide](docs/action-maps.md)
+- [JSON save/load guide](docs/action-map-json.md)
+- [Input code legend](docs/input-codes.md)
 
-## Binding model
-
-Action maps now use:
-
-- attached `DeviceView` pointers
-- per-action arrays of `InputCode` enum values
-
-`InputCode` is shared across device kinds and each device interprets the numeric value based on its own semantics.
-
-Keyboard entries are shift-agnostic (for example `key_a` covers both `a` and `A`). Modifier keys are explicit enum values (`key_shift_left/right`, `key_control_left/right`, `key_alt_left/right`, `key_super_left/right`, `key_escape`).
-
-Backends now translate native platform keycodes into canonical `InputCode` values before updating key state, so bindings use one key namespace across OSes.
-
-## API shape
-
-- `keyboard.update()` updates the keyboard device
-- `mouse.update()` updates the mouse device
-- `gamepad.update()` updates one stable logical gamepad slot
-- `input.keyboard()` and `input.mouse()`
-- `input.mouse().position(window_rect)` for raw or window-relative coordinates
-- `input.mouse().delta()` for raw per-update movement
-- `input.mouse().scrollDelta()` for per-update wheel movement
-- `input.listDevices(kind, out)` to fetch devices by type in stable order
-
-## Mouse position and movement
-
-`MouseDevice.position(window_rect)` returns a `MousePosition` value:
+## Quick start
 
 ```zig
-pub const MousePosition = struct {
-    x: f32,
-    y: f32,
-};
-```
+const input = @import("input");
 
-- Pass `null` to get raw backend coordinates
-- Pass `?*const WindowRect` to get application-window-relative coordinates when
-  the backend stores global mouse coordinates
-- If the backend already reports window-local coordinates, `position(rect)`
-  returns those coordinates unchanged
+var state = input.InputSystem{};
+var actions = input.ActionMap.init();
 
-Mouse coordinates are exposed through `MouseDevice.position(...)`; there are no
-public `mouse.x` or `mouse.y` fields.
-
-`MouseDevice.delta()` returns an `Axis2d` with raw movement since the previous
-successful `mouse.update()`. The first position sample reports `0, 0`, then
-later samples report positive or negative movement as `current - previous`.
-
-`MouseDevice.scrollDelta()` returns an `Axis2d` with scroll wheel movement
-reported during the latest `mouse.update()`. Backends that cannot observe wheel
-events through polling report `0, 0`.
-
-`WindowRect` is a plain value type:
-
-```zig
-pub const WindowRect = struct {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-};
-```
-
-`MousePosition` includes convenience helpers for math-library interop:
-
-```zig
-const pos = input.mouse().position(null);
-const movement = input.mouse().delta();
-const wheel = input.mouse().scrollDelta();
-const arr = pos.array();
-const vec = pos.as(struct { x: f32, y: f32 });
-```
-
-## Gamepads
-
-Gamepad controls use physical-position names instead of controller-specific
-labels:
-
-- `gamepad_face_south` for Xbox `A` / PlayStation Cross
-- `gamepad_face_east` for Xbox `B` / PlayStation Circle
-- `gamepad_face_west` for Xbox `X` / PlayStation Square
-- `gamepad_face_north` for Xbox `Y` / PlayStation Triangle
-- `gamepad_capture` for capture/share-style center buttons when a backend
-  exposes one
-- `gamepad_left_stick` / `gamepad_right_stick` for full 2D stick values
-- directional stick codes such as `gamepad_left_stick_up` and
-  `gamepad_left_stick_right` for button-like or 1D-axis actions
-
-Gamepad slots have stable logical ids starting at `100`. `input.gamepad(slot)`
-looks up a logical slot, while `input.gamepadCount()` counts currently connected
-gamepads. `input.listDevices(.gamepad, out)` returns connected gamepads in slot
-order.
-
-Analog controls are exposed separately from button queries:
-
-```zig
-const pad = input.gamepad(0) orelse return;
-const move = pad.leftStick();
-const aim = pad.rightStick();
-const brake = pad.leftTrigger();
-const throttle = pad.rightTrigger();
-```
-
-Sticks use normalized `[-1, 1]` values. Triggers use normalized `[0, 1]`
-values.
-
-Action maps can also read action values:
-
-```zig
-try actions.set("forward", &.{
-    .{ .code = .key_w },
-    .{ .code = .gamepad_left_stick_up, .activation_threshold = 0.35 },
-});
-try actions.set2d("move", .{
-    .left = &.{.{ .code = .key_a }},
-    .right = &.{.{ .code = .key_d }},
-    .up = &.{.{ .code = .key_w }},
-    .down = &.{.{ .code = .key_s }},
-    .vectors = &.{.{ .code = .gamepad_left_stick }},
-});
-
-if (actions.down(&input, "forward")) {
-    // W is held or the stick is pushed forward past the button threshold.
-}
-
-const forward = actions.axis1d(&input, "forward");
-const move = actions.axis2d(&input, "move");
-```
-
-`axis1d` returns `Axis1d` and `axis2d` returns `Axis2d`. They ignore
-incompatible codes and add compatible values together, clamping the final result
-to `[-1, 1]`.
-
-`set2d` is the cleaner path for movement-style actions that combine one or more
-four-way digital sources such as `WASD` with vector sources such as
-`.gamepad_left_stick`. It merges them into one `Axis2d` and clamps each final
-component to `[-1, 1]`.
-
-When `down`, `pressed`, or `released` checks an analog-capable bound input, it
-uses that binding's `activation_threshold`. If none is set, the default
-threshold is `0.5`.
-
-Direct gamepad button queries also treat 1D axis codes as buttons. For example,
-`pad.down(.gamepad_left_trigger)` becomes true when the left trigger is above
-the gamepad's activation threshold. Use `pad.setActivationThreshold(...)` to
-change the default `0.5` threshold, or `buttonWithThreshold` /
-`prevButtonWithThreshold` when a caller has its own threshold.
-
-Gamepads also have per-axis deadzones for axis queries:
-
-New gamepad devices start with a default deadzone of `0.04` on both sticks.
-Triggers default to `0.00`. Override any axis when you want a different value.
-
-```zig
-if (input.gamepad(0)) |pad| {
-    pad.setLeftStickDeadzone(0.2);
-    pad.setRightStickDeadzone(0.15);
-    pad.setLeftTriggerDeadzone(0.05);
-    pad.setRightTriggerDeadzone(0.05);
-
-    try pad.setDeadzone(.gamepad_left_stick_up, 0.25);
-}
-```
-
-Axis values smaller than their deadzone are reported as `0`. Directional stick
-codes share the deadzone of their parent stick.
-
-Gamepad slots are updated per device. A local multiplayer game can update only
-the slots assigned to active players:
-
-```zig
-try input.keyboard().update();
-try input.mouse().update();
-if (input.gamepad(0)) |pad| try pad.update();
-if (input.gamepad(1)) |pad| try pad.update();
-```
-
-## Device listing guarantees
-
-- stable IDs for built-ins:
-  - keyboard id = `0`
-  - mouse id = `1`
-  - gamepad slots start at id = `100`
-- deterministic order for the same kind
-
-## ActionMap
-
-`ActionMap` supports keybind-style actions with fixed action names (`32` chars).
-
-- action maps attach one or more devices
-- `set(name, codes)` creates or replaces an action
-- `set2d(name, binding)` creates or replaces a 2D action
-- `set(name, null)` disables/unbinds an action
-- `reset(name, defaults)` restores one action from a separate default map
-- `resetAll(defaults)` replaces all actions with a separate default map
-- `findConflict(code, ignore_action)` finds the first action already using an
-  `InputCode`
-- `inputCodeName(code)` returns a stable config token such as `key_space`
-- `inputCodeLabel(code)` returns a GUI label such as `Space`
-- `parseInputCode(name)` parses stable config tokens back into `InputCode`
-- `remove(name)` deletes the action
-- functions:
-  - `attachDevice`
-  - `detachDevice`
-  - `set`
-  - `set2d`
-  - `reset`
-  - `resetAll`
-  - `remove`
-  - `actionCount`
-  - `snapshot`
-  - `importBindings`
-  - `loadSnapshot`
-  - `actionCodes`
-  - `action2d`
-  - `findConflict`
-  - `down`
-  - `up`
-  - `pressed`
-  - `released`
-
-A game can keep hard-coded defaults separate from user-editable bindings:
-
-```zig
-var defaults = input_lib.ActionMap.init();
-try defaults.set("jump", &.{
-    .{ .code = .key_space },
-    .{ .code = .gamepad_face_south },
-});
-try defaults.set2d("move", .{
-    .left = &.{.{ .code = .key_a }},
-    .right = &.{.{ .code = .key_d }},
-    .up = &.{.{ .code = .key_w }},
-    .down = &.{.{ .code = .key_s }},
-    .vectors = &.{.{ .code = .gamepad_left_stick }},
-});
-
-var bindings = defaults;
-try bindings.attachDevices(&input, .{
+try actions.attachDevices(&state, .{
     .keyboard = true,
     .mouse = true,
     .gamepad_slot = 0,
 });
 
-try bindings.set("jump", &.{
-    .{ .code = .key_j },
-    .{ .code = .gamepad_face_south },
-});
-try bindings.reset("jump", &defaults);
-```
-
-For save/load, take an `ActionBindings` snapshot and write its slice. The JSON
-shape is a plain array of `ActionBinding` values:
-
-```zig
-const saved = bindings.snapshot();
-try std.json.Stringify.value(saved.slice(), .{
-    .emit_null_optional_fields = false,
-}, writer);
-
-for (saved.slice()) |binding| {
-    _ = binding.name;
-
-    if (binding.codes) |codes| {
-        for (codes) |code| {
-            const token = input_lib.inputCodeName(code.code) orelse "unknown";
-            _ = token;
-        }
-    }
-
-    if (binding.left) |codes| {
-        for (codes) |code| {
-            const token = input_lib.inputCodeName(code.code) orelse "unknown";
-            _ = token;
-        }
-    }
-}
-```
-
-Load by parsing saved data back into `ActionBinding` values:
-
-```zig
-var loaded = [_]input_lib.ActionBinding{ /* parsed from disk */ };
-try bindings.importBindings(loaded[0..]);
-```
-
-For a keybinding GUI, inspect one action by name:
-
-```zig
-if (bindings.actionCodes("jump")) |codes| {
-    for (codes) |code| {
-        const label = input_lib.inputCodeLabel(code.code) orelse "Unknown";
-        _ = label;
-    }
-}
-
-if (bindings.action2d("move")) |binding| {
-    if (binding.left) |codes| {
-        for (codes) |code| {
-            const label = input_lib.inputCodeLabel(code.code) orelse "Unknown";
-            _ = label;
-        }
-    }
-}
-
-if (bindings.findConflict(.key_f, "interact")) |conflict| {
-    // conflict.action_name and conflict.slot identify where it is already used.
-    _ = conflict;
-}
-```
-
-## Example
-
-```zig
-const input_lib = @import("input");
-
-var input = input_lib.InputSystem{};
-var actions = input_lib.ActionMap.init();
-
-try actions.attachDevices(&input, .{
-    .keyboard = true,
-    .mouse = true,
+try actions.set2d("move", .{
+    .up = &.{.{ .code = .key_w }},
+    .down = &.{.{ .code = .key_s }},
+    .left = &.{.{ .code = .key_a }},
+    .right = &.{.{ .code = .key_d }},
+    .vectors = &.{.{ .code = .gamepad_left_stick }},
 });
 try actions.set("jump", &.{
     .{ .code = .key_space },
-    .{ .code = .mouse_left },
+    .{ .code = .gamepad_face_south },
 });
 
-try input.keyboard().update();
-try input.mouse().update();
+while (true) {
+    try state.keyboard().update();
+    try state.mouse().update();
+    if (state.gamepad(0)) |pad| try pad.update();
 
-const window_rect = input_lib.WindowRect{
-    .x = 100,
-    .y = 50,
-    .width = 1280,
-    .height = 720,
-};
-const mouse_pos = input.mouse().position(&window_rect);
-
-if (actions.pressed(&input, "jump")) {
-    // pressed this update cycle
+    const move = actions.axis2d(&state, "move");
+    const jump_pressed = actions.pressed(&state, "jump");
+    _ = move;
+    _ = jump_pressed;
 }
 ```
 
-For a larger consumer-facing setup, see
-`examples/player_action_map.zig` and build it with:
+## Example programs
+
+Build the examples:
 
 ```sh
+zig build example-device-polling
 zig build example-player
+zig build example-save-action-map
+zig build example-action-map-round-trip
+zig build example-load-action-map-debug
 ```
 
-Two save/load examples use JSON on disk:
+Then run the installed binaries from `zig-out/bin`:
 
-- `examples/save_action_map.zig` writes the current action map to
-  `action_bindings.json` as a plain JSON array of `ActionBinding` objects with
-  per-input metadata.
-- `examples/load_action_map_debug.zig` loads `action_bindings.json` when it
-  exists, otherwise uses hard-coded defaults, then displays every action and
-  its current state. On Wayland it opens the same focused helper window as
-  `debug-input` so keyboard and mouse actions can be tested normally.
+- `device-polling`
+  - updates each device directly and prints keyboard, mouse, and gamepad state
+- `player-action-map`
+  - builds a typical player action map and prints sampled gameplay input
+- `save-action-map`
+  - writes a plain JSON array of `ActionBinding` entries
+- `action-map-round-trip`
+  - loads bindings from disk when present, lets you save and reset in a loop, and prints the active bindings every frame
+- `load-action-map-debug`
+  - renders all configured actions and their live state in a debug viewer
 
-```sh
-zig build example-save-action-map
-./zig-out/bin/save-action-map
+Most examples accept `--frames N` so you can run a bounded number of updates.
 
-zig build example-load-action-map-debug
-./zig-out/bin/load-action-map-debug
+## Core concepts
+
+- `InputSystem.keyboard()` returns the singleton keyboard device
+- `InputSystem.mouse()` returns the singleton mouse device
+- `InputSystem.gamepad(slot)` returns a stable logical gamepad slot
+- buttons expose:
+  - `down`
+  - `up`
+  - `pressed`
+  - `released`
+- analog queries expose:
+  - `axis1d`
+  - `axis2d`
+  - `leftStick`
+  - `rightStick`
+  - `leftTrigger`
+  - `rightTrigger`
+
+Gamepads use physical-position names:
+
+- `gamepad_face_south` = Xbox `A` / PlayStation Cross
+- `gamepad_face_east` = Xbox `B` / PlayStation Circle
+- `gamepad_face_west` = Xbox `X` / PlayStation Square
+- `gamepad_face_north` = Xbox `Y` / PlayStation Triangle
+
+Action maps use structured `BoundInput` entries:
+
+```zig
+try actions.set("fire", &.{
+    .{ .code = .mouse_left },
+    .{ .code = .gamepad_right_trigger, .activation_threshold = 0.1 },
+});
+```
+
+`activation_threshold` controls when analog-capable inputs become active for
+button-style queries such as `down`, `pressed`, and `released`.
+
+## Persistence
+
+Take a snapshot and write the slice directly as JSON:
+
+```zig
+const saved = actions.snapshot();
+try std.json.Stringify.value(saved.slice(), .{
+    .emit_null_optional_fields = false,
+}, writer);
+```
+
+Load by parsing `[]ActionBinding` and passing it back:
+
+```zig
+var parsed = try std.json.parseFromSlice(
+    []input.ActionBinding,
+    allocator,
+    contents,
+    .{ .ignore_unknown_fields = true },
+);
+defer parsed.deinit();
+
+try actions.importBindings(parsed.value);
+```
+
+For editing one action at a time:
+
+```zig
+if (actions.binding("jump")) |current| {
+    var edited = current;
+    edited.codes = &.{
+        .{ .code = .key_enter },
+        .{ .code = .gamepad_face_south },
+    };
+    try actions.setBinding(edited);
+}
 ```
 
 ## Debug viewer
 
-There is one debug viewer executable:
-
-- `debug-input`
-
-- Run with environment-based backend selection:
+Run the input debugger with:
 
 ```sh
 zig build debug-input
 ```
 
-- Run for a fixed number of frames, then exit:
+Optional bounded run:
 
 ```sh
 zig build debug-input -- --frames 10
 ```
 
-`--frames N` is only a test convenience flag. It redraws `N` times and exits
-instead of running forever.
+The viewer prints:
 
-The viewer redraws with:
+- mouse position, delta, and scroll
+- mouse button state
+- a small keyboard probe set
+- gamepad buttons, sticks, triggers, and connection state
 
-- mouse position via `MouseDevice.position(null)`
-- mouse movement via `MouseDevice.delta()`
-- scroll wheel movement via `MouseDevice.scrollDelta()`
-- mouse button `down` / `pressed` / `released`
-- a fixed set of common keyboard probes
-- gamepad connected state, buttons, sticks, and triggers
-
-For Wayland desktops, `zig build debug-input` now creates a native Wayland
-window and reports keyboard and mouse state only while that window has focus.
-
-When both `DISPLAY` and `WAYLAND_DISPLAY` are set, input prefers Wayland,
-which matches the actual desktop session more closely on compositors such as
-Hyprland.
+On Wayland, `debug-input` opens a focused helper window so keyboard and mouse
+state can be read normally.
 
 ## Platform notes
 
-- Linux uses runtime detection and cached backend selection.
-- Wayland does not allow global keyboard/mouse polling. The default keyboard and
-  mouse update path is a no-op on Wayland; `debug-input` uses a focused Wayland
-  window when it needs live keyboard and mouse state.
-- Windows gamepad polling uses XInput slots.
-- Linux gamepad polling uses `/dev/input/jsN` when the current user can open the
-  joystick device. It does not require root and treats inaccessible devices as
-  disconnected.
-- The Linux joystick API may not expose newer controls such as Xbox
-  screenshot/share or PlayStation Create buttons. `gamepad_capture` is therefore
-  optional and may remain up even when the physical button exists.
-- input does not use `/dev/input/event*` by default because those devices are
-  commonly unreadable without elevated permissions or udev/group changes.
+- Linux uses runtime backend detection and cached backend selection
+- Wayland does not allow global keyboard/mouse polling; the default polling path
+  is a no-op there unless you use a focused window
+- Windows gamepad polling uses XInput slots
+- Linux gamepad polling uses `/dev/input/jsN`
 - macOS gamepad polling uses GameController first and falls back to IOKit HID
-  devices for wired controllers. Xbox Home is decoded from wired-controller
-  vendor reports when needed, but may remain up when the same controller is
-  connected wirelessly. Xbox Capture/Share reports are ambiguous with normal
-  button telemetry, so `gamepad_capture` may remain up on macOS too.
 
 ## Source layout
 
-- `src/device/common.zig` shared device view/state types
-- `src/device/input_code.zig` canonical input codes
-- `src/device/keyboard.zig` keyboard device
-- `src/device/mouse.zig` mouse device
-- `src/device/gamepad.zig` gamepad device
-- `src/device.zig` public device facade
+- `src/device/input_code.zig`
+- `src/device/keyboard.zig`
+- `src/device/mouse.zig`
+- `src/device/gamepad.zig`
+- `src/action_map.zig`
+- `examples/`

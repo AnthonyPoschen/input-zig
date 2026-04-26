@@ -67,6 +67,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    const device_polling_module = b.createModule(.{
+        .root_source_file = b.path("examples/device_polling.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
     const save_action_map_module = b.createModule(.{
         .root_source_file = b.path("examples/save_action_map.zig"),
         .target = target,
@@ -75,6 +81,12 @@ pub fn build(b: *std.Build) void {
     });
     const load_action_map_debug_module = b.createModule(.{
         .root_source_file = b.path("examples/load_action_map_debug.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const action_map_round_trip_module = b.createModule(.{
+        .root_source_file = b.path("examples/action_map_round_trip.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
@@ -98,6 +110,10 @@ pub fn build(b: *std.Build) void {
         .name = "player-action-map",
         .root_module = example_module,
     });
+    const device_polling_exe = b.addExecutable(.{
+        .name = "device-polling",
+        .root_module = device_polling_module,
+    });
     const save_action_map_exe = b.addExecutable(.{
         .name = "save-action-map",
         .root_module = save_action_map_module,
@@ -106,26 +122,36 @@ pub fn build(b: *std.Build) void {
         .name = "load-action-map-debug",
         .root_module = load_action_map_debug_module,
     });
+    const action_map_round_trip_exe = b.addExecutable(.{
+        .name = "action-map-round-trip",
+        .root_module = action_map_round_trip_module,
+    });
     debug_module.addImport("input", module);
     example_module.addImport("input", module);
+    device_polling_module.addImport("input", module);
     save_action_map_module.addImport("input", module);
     load_action_map_debug_module.addImport("input", module);
+    action_map_round_trip_module.addImport("input", module);
     load_action_map_debug_module.addImport("debug_input_wayland", debug_wayland_module);
     debug_wayland_module.addImport("input", module);
 
     configurePlatformLinking(tests, target.result.os.tag);
     configurePlatformLinking(debug_exe, target.result.os.tag);
     configurePlatformLinking(example_exe, target.result.os.tag);
+    configurePlatformLinking(device_polling_exe, target.result.os.tag);
     configurePlatformLinking(save_action_map_exe, target.result.os.tag);
     configurePlatformLinking(load_action_map_debug_exe, target.result.os.tag);
+    configurePlatformLinking(action_map_round_trip_exe, target.result.os.tag);
     configureWaylandDebugLinking(debug_exe, target.result.os.tag);
     configureWaylandDebugLinking(load_action_map_debug_exe, target.result.os.tag);
 
     const run_tests = b.addRunArtifact(tests);
     const run_debug = b.addRunArtifact(debug_exe);
     const install_example = b.addInstallArtifact(example_exe, .{});
+    const install_device_polling = b.addInstallArtifact(device_polling_exe, .{});
     const install_save_action_map = b.addInstallArtifact(save_action_map_exe, .{});
     const install_load_action_map_debug = b.addInstallArtifact(load_action_map_debug_exe, .{});
+    const install_action_map_round_trip = b.addInstallArtifact(action_map_round_trip_exe, .{});
 
     if (b.args) |args| {
         run_debug.addArgs(args);
@@ -140,6 +166,10 @@ pub fn build(b: *std.Build) void {
         "example-player",
         "Build the player action map example",
     );
+    const device_polling_step = b.step(
+        "example-device-polling",
+        "Build the device polling example",
+    );
     const save_action_map_step = b.step(
         "example-save-action-map",
         "Build the action map JSON save example",
@@ -148,10 +178,16 @@ pub fn build(b: *std.Build) void {
         "example-load-action-map-debug",
         "Build the action map JSON load debug viewer",
     );
+    const action_map_round_trip_step = b.step(
+        "example-action-map-round-trip",
+        "Build the action map JSON round-trip example",
+    );
 
     test_step.dependOn(&run_tests.step);
     debug_step.dependOn(&run_debug.step);
     example_step.dependOn(&install_example.step);
+    device_polling_step.dependOn(&install_device_polling.step);
     save_action_map_step.dependOn(&install_save_action_map.step);
     load_action_map_debug_step.dependOn(&install_load_action_map_debug.step);
+    action_map_round_trip_step.dependOn(&install_action_map_round_trip.step);
 }
