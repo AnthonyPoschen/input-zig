@@ -20,6 +20,7 @@ pub const ActionBinding = action_map.ActionBinding;
 pub const ActionKind = action_map.ActionKind;
 pub const ActionMap = action_map.ActionMap;
 pub const Action2dBinding = action_map.Action2dBinding;
+pub const AttachOptions = action_map.AttachOptions;
 pub const BindingConflict = action_map.BindingConflict;
 pub const BindingSlot = action_map.BindingSlot;
 pub const inputCodeLabel = device.inputCodeLabel;

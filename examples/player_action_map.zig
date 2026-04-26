@@ -14,9 +14,11 @@ const PlayerInput = struct {
 fn setupPlayerActions(input: *input_lib.InputSystem, actions: *input_lib.ActionMap) !void {
     const gamepad = input.gamepad(0) orelse unreachable;
 
-    try actions.attachDevice(input.keyboard());
-    try actions.attachDevice(input.mouse());
-    try actions.attachDevice(gamepad);
+    try actions.attachDevices(input, .{
+        .keyboard = true,
+        .mouse = true,
+        .gamepad_slot = 0,
+    });
 
     try actions.set2d("move", .{
         .left = &.{.key_a},

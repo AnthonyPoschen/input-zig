@@ -168,6 +168,9 @@ change the default `0.5` threshold, or `buttonWithThreshold` /
 
 Gamepads also have per-axis deadzones for axis queries:
 
+New gamepad devices start with a default deadzone of `0.04` on both sticks.
+Triggers default to `0.00`. Override any axis when you want a different value.
+
 ```zig
 if (input.gamepad(0)) |pad| {
     pad.setLeftStickDeadzone(0.2);
@@ -249,9 +252,11 @@ try defaults.set2d("move", .{
 }, null);
 
 var bindings = defaults;
-try bindings.attachDevice(input.keyboard());
-try bindings.attachDevice(input.mouse());
-if (input.gamepad(0)) |pad| try bindings.attachDevice(pad);
+try bindings.attachDevices(&input, .{
+    .keyboard = true,
+    .mouse = true,
+    .gamepad_slot = 0,
+});
 
 try bindings.set("jump", &.{ .key_j, .gamepad_face_south }, null);
 try bindings.reset("jump", &defaults);
@@ -326,8 +331,10 @@ const input_lib = @import("input");
 var input = input_lib.InputSystem{};
 var actions = input_lib.ActionMap.init();
 
-try actions.attachDevice(input.keyboard());
-try actions.attachDevice(input.mouse());
+try actions.attachDevices(&input, .{
+    .keyboard = true,
+    .mouse = true,
+});
 try actions.set("jump", &.{ .key_space, .mouse_left }, null);
 
 try input.keyboard().update();

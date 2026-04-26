@@ -12,6 +12,12 @@ pub const ActionOptions = struct {
     axis_button_threshold: f32 = 0.5,
 };
 
+pub const AttachOptions = struct {
+    keyboard: bool = false,
+    mouse: bool = false,
+    gamepad_slot: ?usize = null,
+};
+
 pub const Action2dBinding = struct {
     left: ?[]const device.InputCode = null,
     right: ?[]const device.InputCode = null,
@@ -90,6 +96,15 @@ pub const ActionMap = struct {
         if (self.device_count >= max_devices_per_map) return error.TooManyDevices;
         self.devices[self.device_count] = view;
         self.device_count += 1;
+    }
+
+    pub fn attachDevices(self: *ActionMap, input_system: anytype, options: AttachOptions) !void {
+        if (options.keyboard) try self.attachDevice(input_system.keyboard());
+        if (options.mouse) try self.attachDevice(input_system.mouse());
+        if (options.gamepad_slot) |slot| {
+            const gamepad = input_system.gamepad(slot) orelse return error.InvalidGamepadSlot;
+            try self.attachDevice(gamepad);
+        }
     }
 
     pub fn detachDevice(self: *ActionMap, input_device: anytype) bool {

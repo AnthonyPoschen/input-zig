@@ -7,6 +7,7 @@ const ButtonState = common.ButtonState;
 const InputCode = input_code.InputCode;
 
 pub const default_axis_button_threshold: f32 = 0.5;
+pub const default_stick_deadzone: f32 = 0.04;
 pub const GamepadStick = common.Axis2d;
 
 pub const GamepadIdentity = struct {
@@ -56,8 +57,8 @@ pub const GamepadDevice = struct {
     debug_report_id: u8 = 0,
     debug_report: [32]u8 = [_]u8{0} ** 32,
     debug_report_len: u8 = 0,
-    left_stick_deadzone: f32 = 0,
-    right_stick_deadzone: f32 = 0,
+    left_stick_deadzone: f32 = default_stick_deadzone,
+    right_stick_deadzone: f32 = default_stick_deadzone,
     left_trigger_deadzone: f32 = 0,
     right_trigger_deadzone: f32 = 0,
     axis_button_threshold: f32 = default_axis_button_threshold,

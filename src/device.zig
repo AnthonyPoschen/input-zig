@@ -211,3 +211,27 @@ test "gamepad exposes normalized analog values" {
     try std.testing.expectEqual(@as(f32, 0.75), pad.leftTrigger());
     try std.testing.expectEqual(@as(f32, 1), pad.rightTrigger());
 }
+
+test "gamepad uses default deadzones when not configured" {
+    const pad = GamepadDevice{
+        .view = GamepadDevice.init(0).view,
+        .left_stick = .{ .x = 0.03, .y = 0.05 },
+        .right_stick = .{ .x = 0.03, .y = 0.05 },
+        .left_trigger_value = 0.03,
+        .right_trigger_value = 0.05,
+    };
+
+    const left = pad.leftStick();
+    const right = pad.rightStick();
+
+    try std.testing.expectEqual(GamepadDevice.default_stick_deadzone, pad.left_stick_deadzone);
+    try std.testing.expectEqual(GamepadDevice.default_stick_deadzone, pad.right_stick_deadzone);
+    try std.testing.expectEqual(@as(f32, 0), pad.left_trigger_deadzone);
+    try std.testing.expectEqual(@as(f32, 0), pad.right_trigger_deadzone);
+    try std.testing.expectEqual(@as(f32, 0), left.x);
+    try std.testing.expectEqual(@as(f32, 0.05), left.y);
+    try std.testing.expectEqual(@as(f32, 0), right.x);
+    try std.testing.expectEqual(@as(f32, 0.05), right.y);
+    try std.testing.expectEqual(@as(f32, 0.03), pad.leftTrigger());
+    try std.testing.expectEqual(@as(f32, 0.05), pad.rightTrigger());
+}

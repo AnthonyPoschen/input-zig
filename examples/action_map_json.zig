@@ -33,9 +33,11 @@ pub fn buildDefaultActions(actions: *input.ActionMap) !void {
 }
 
 pub fn attachDefaultDevices(state: *input.InputSystem, actions: *input.ActionMap) !void {
-    try actions.attachDevice(state.keyboard());
-    try actions.attachDevice(state.mouse());
-    if (state.gamepad(0)) |gamepad| try actions.attachDevice(gamepad);
+    try actions.attachDevices(state, .{
+        .keyboard = true,
+        .mouse = true,
+        .gamepad_slot = 0,
+    });
 }
 
 pub fn updateDefaultDevices(state: *input.InputSystem) !void {
