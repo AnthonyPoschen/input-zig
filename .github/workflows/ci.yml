@@ -9,10 +9,24 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Setup Zig (0.17-dev)
-        uses: mlugg/setup-zig@v1
-        with:
-          version: master   # 最新的开发版，即 0.17.0-dev why
+      # 官方推荐方案：使用镜像列表获取最新的 master 版本
+      - name: Setup Zig (latest master)
+        run: |
+          # 1. 获取官方维护的镜像列表 JSON
+          curl -o zig-index.json https://ziglang.org/download/index.json
+
+          # 2. 从 JSON 中提取 'master' 版本，x86_64-linux 架构的 tarball 链接
+          DOWNLOAD_URL=$(jq -r '.master."x86_64-linux".tarball' zig-index.json)
+          echo "Downloading Zig from: $DOWNLOAD_URL"
+
+          # 3. 下载并解压最新的 Zig master 构建
+          curl -L -o zig.tar.xz "$DOWNLOAD_URL"
+          tar -xf zig.tar.xz
+
+          # 4. 将 Zig 二进制文件添加到 PATH
+          # 解压后的目录名类似 'zig-linux-x86_64-0.17.0-dev.X'
+          ZIG_DIR=$(tar -tf zig.tar.xz | head -1 | cut -f1 -d"/")
+          echo "$PWD/$ZIG_DIR" >> $GITHUB_PATH
 
       - name: Install dependencies
         run: |
