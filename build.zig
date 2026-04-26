@@ -1,5 +1,50 @@
 const std = @import("std");
 
+fn addPlatformCImports(
+    b: *std.Build,
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    switch (target.result.os.tag) {
+        .linux => {
+            const linux_c = b.addTranslateC(.{
+                .root_source_file = b.path("src/platform/linux_c.h"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            });
+            module.addImport("input_zig_linux_c", linux_c.createModule());
+        },
+        .windows => {
+            const windows_c = b.addTranslateC(.{
+                .root_source_file = b.path("src/platform/windows_c.h"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            });
+            module.addImport("input_zig_windows_c", windows_c.createModule());
+        },
+        else => {},
+    }
+}
+
+fn addWaylandDebugCImport(
+    b: *std.Build,
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    const wayland_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/platform/wayland_debug_c.h"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    wayland_c.addIncludePath(b.path("src/platform"));
+    module.addImport("input_zig_wayland_debug_c", wayland_c.createModule());
+}
+
 fn configurePlatformLinking(step: *std.Build.Step.Compile, os_tag: std.Target.Os.Tag) void {
     switch (os_tag) {
         .windows => {
@@ -104,6 +149,12 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     debug_wayland_module.addIncludePath(b.path("src/platform"));
+    addPlatformCImports(b, module, target, optimize);
+    addPlatformCImports(b, test_module, target, optimize);
+    if (target.result.os.tag == .linux) {
+        addWaylandDebugCImport(b, debug_module, target, optimize);
+        addWaylandDebugCImport(b, debug_wayland_module, target, optimize);
+    }
     const tests = b.addTest(.{
         .root_module = test_module,
     });
