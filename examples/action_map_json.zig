@@ -44,15 +44,15 @@ pub fn updateDefaultDevices(state: *input.InputSystem) !void {
     if (state.gamepad(0)) |gamepad| try gamepad.update();
 }
 
-pub fn save(path: []const u8, actions: *const input.ActionMap) !void {
+pub fn save(io: std.Io, path: []const u8, actions: *const input.ActionMap) !void {
     var bindings: [input.action_map.max_actions]input.ActionBinding = undefined;
     const count = actions.exportBindings(bindings[0..]);
 
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
+    const file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
+    defer file.close(io);
 
     var buffer: [4096]u8 = undefined;
-    var writer = file.writer(&buffer);
+    var writer = file.writer(io, &buffer);
     const out = &writer.interface;
 
     try std.json.Stringify.value(bindings[0..count], .{
@@ -62,8 +62,8 @@ pub fn save(path: []const u8, actions: *const input.ActionMap) !void {
     try out.flush();
 }
 
-pub fn load(path: []const u8, allocator: std.mem.Allocator, actions: *input.ActionMap) !bool {
-    const contents = std.fs.cwd().readFileAlloc(allocator, path, max_file_size) catch |err| switch (err) {
+pub fn load(io: std.Io, path: []const u8, allocator: std.mem.Allocator, actions: *input.ActionMap) !bool {
+    const contents = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(max_file_size)) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => return err,
     };

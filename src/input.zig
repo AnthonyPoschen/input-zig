@@ -2,6 +2,7 @@ const std = @import("std");
 const device = @import("device.zig");
 pub const action_map = @import("action_map.zig");
 
+pub const Axis1d = device.Axis1d;
 pub const Axis2d = device.Axis2d;
 pub const DeviceKind = device.DeviceKind;
 pub const DeviceView = device.DeviceView;

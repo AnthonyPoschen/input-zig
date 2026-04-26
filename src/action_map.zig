@@ -307,7 +307,7 @@ pub const ActionMap = struct {
         return self.eval(input_system, name, .released);
     }
 
-    pub fn axis1d(self: *const ActionMap, input_system: anytype, name: []const u8) f32 {
+    pub fn axis1d(self: *const ActionMap, input_system: anytype, name: []const u8) device.Axis1d {
         const action = self.findByNameConst(name) orelse return 0;
         if (!action.enabled) return 0;
         if (action.kind != .codes) return 0;
@@ -377,14 +377,17 @@ pub const ActionMap = struct {
         var slot: usize = 0;
         while (input_system.gamepad(slot)) |gamepad| : (slot += 1) {
             if (view != &gamepad.view) continue;
-            if (axisButtonQuery(gamepad.axis1d(code), gamepad.prevAxis1d(code), query, options)) return true;
-            return buttonQuery(gamepad.button(code), gamepad.prevButton(code), query);
+            return buttonQuery(
+                gamepad.buttonWithThreshold(code, options.axis_button_threshold),
+                gamepad.prevButtonWithThreshold(code, options.axis_button_threshold),
+                query,
+            );
         }
 
         return false;
     }
 
-    fn deviceAxis1d(input_system: anytype, view: *const device.DeviceView, code: device.InputCode) ?f32 {
+    fn deviceAxis1d(input_system: anytype, view: *const device.DeviceView, code: device.InputCode) ?device.Axis1d {
         const keyboard = input_system.keyboard();
         const mouse = input_system.mouse();
 
@@ -558,8 +561,8 @@ pub const ActionMap = struct {
         input_system: anytype,
         code: device.InputCode,
         options: ActionOptions,
-    ) f32 {
-        var out: f32 = 0;
+    ) device.Axis1d {
+        var out: device.Axis1d = 0;
         var device_index: usize = 0;
         while (device_index < self.device_count) : (device_index += 1) {
             const value = deviceAxis1d(

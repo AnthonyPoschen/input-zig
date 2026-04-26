@@ -16,13 +16,13 @@ const ActionDebugContext = struct {
     devices_attached: bool = false,
 };
 
-pub fn main() !void {
-    const config = try parseConfig();
+pub fn main(init: std.process.Init) !void {
+    const config = try parseConfig(init.minimal.args);
 
     var stdout_buffer: [8192]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&stdout_buffer);
-    var stderr = std.fs.File.stderr().writer(&stderr_buffer);
+    var stdout = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    var stderr = std.Io.File.stderr().writer(init.io, &stderr_buffer);
     const stdout_writer = &stdout.interface;
     const stderr_writer = &stderr.interface;
 
@@ -32,6 +32,7 @@ pub fn main() !void {
 
     var actions = defaults;
     const loaded = action_map_json.load(
+        init.io,
         action_map_json.file_name,
         std.heap.page_allocator,
         &actions,
@@ -50,6 +51,7 @@ pub fn main() !void {
             ActionDebugContext,
             &context,
             config.frame_limit,
+            init.io,
             renderWaylandActionMap,
         );
     }
@@ -78,12 +80,15 @@ pub fn main() !void {
             if (frame_count >= limit) return;
         }
 
-        std.Thread.sleep(frame_time_ns);
+        try init.io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
     }
 }
 
-fn parseConfig() !Config {
-    var args = try std.process.argsWithAllocator(std.heap.page_allocator);
+fn parseConfig(process_args: std.process.Args) !Config {
+    var args = if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        try std.process.Args.Iterator.initAllocator(process_args, std.heap.page_allocator)
+    else
+        std.process.Args.Iterator.init(process_args);
     defer args.deinit();
     var config = Config{};
 
@@ -92,7 +97,7 @@ fn parseConfig() !Config {
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--frames")) {
             const value = args.next() orelse return error.MissingFrameLimit;
-            config.frame_limit = try std.fmt.parseInt(usize, value, 10);
+            config.frame_limit = try parseUsize(value);
             continue;
         }
 
@@ -104,6 +109,16 @@ fn parseConfig() !Config {
     }
 
     return config;
+}
+
+fn parseUsize(text: []const u8) !usize {
+    if (text.len == 0) return error.InvalidFrameLimit;
+    var out: usize = 0;
+    for (text) |byte| {
+        if (byte < '0' or byte > '9') return error.InvalidFrameLimit;
+        out = out * 10 + (byte - '0');
+    }
+    return out;
 }
 
 fn renderWaylandActionMap(
@@ -211,17 +226,35 @@ fn renderAxis2dAction(
     binding: input.ActionBinding,
 ) !void {
     const value = actions.axis2d(state, binding.name);
-    try writer.print("{s: <12} enabled={any} axis=({d:.2}, {d:.2})\n", .{
+    try writer.print("{s: <12} enabled={any} axis=(", .{
         binding.name,
         binding.enabled,
-        value.x,
-        value.y,
     });
+    try writeFixed(writer, value.x, 100);
+    try writer.writeAll(", ");
+    try writeFixed(writer, value.y, 100);
+    try writer.writeAll(")\n");
     try renderNamedCodeList(writer, "left", binding.left);
     try renderNamedCodeList(writer, "right", binding.right);
     try renderNamedCodeList(writer, "up", binding.up);
     try renderNamedCodeList(writer, "down", binding.down);
     try renderNamedCodeList(writer, "vectors", binding.vectors);
+}
+
+fn writeFixed(writer: *std.Io.Writer, value: f32, comptime scale: i32) !void {
+    var scaled: i32 = @intFromFloat(value * @as(f32, @floatFromInt(scale)));
+    if (scaled < 0) {
+        try writer.writeByte('-');
+        scaled = -scaled;
+    }
+
+    const whole = @divTrunc(scaled, scale);
+    const fraction: u32 = @intCast(@rem(scaled, scale));
+    if (scale == 10) {
+        try writer.print("{d}.{d}", .{ whole, fraction });
+    } else {
+        try writer.print("{d}.{d:0>2}", .{ whole, fraction });
+    }
 }
 
 fn renderNamedCodeList(

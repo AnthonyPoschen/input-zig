@@ -13,6 +13,7 @@ pub const max_gamepads = common.max_gamepads;
 pub const max_gamepad_buttons = common.max_gamepad_buttons;
 pub const first_gamepad_id = common.first_gamepad_id;
 
+pub const Axis1d = common.Axis1d;
 pub const Axis2d = common.Axis2d;
 pub const ButtonState = common.ButtonState;
 pub const DeviceKind = common.DeviceKind;
@@ -150,6 +151,36 @@ test "gamepad button transitions use canonical button codes" {
 
     pad.buttons[0] = .up;
     try std.testing.expect(pad.released(.gamepad_face_south));
+}
+
+test "gamepad 1d axes can be queried as buttons" {
+    var pad = GamepadDevice.init(0);
+
+    pad.prev_left_trigger_value = 0.25;
+    pad.left_trigger_value = 0.75;
+    try std.testing.expect(pad.down(.gamepad_left_trigger));
+    try std.testing.expect(pad.pressed(.gamepad_left_trigger));
+    try std.testing.expect(!pad.released(.gamepad_left_trigger));
+
+    pad.prev_left_trigger_value = 0.75;
+    pad.left_trigger_value = 0.25;
+    try std.testing.expect(!pad.down(.gamepad_left_trigger));
+    try std.testing.expect(!pad.pressed(.gamepad_left_trigger));
+    try std.testing.expect(pad.released(.gamepad_left_trigger));
+
+    pad.left_stick.y = 0.6;
+    try std.testing.expect(pad.down(.gamepad_left_stick_up));
+}
+
+test "gamepad axis button threshold is configurable" {
+    var pad = GamepadDevice.init(0);
+
+    pad.left_trigger_value = 0.4;
+    try std.testing.expect(!pad.down(.gamepad_left_trigger));
+
+    pad.setAxisButtonThreshold(0.3);
+    try std.testing.expect(pad.down(.gamepad_left_trigger));
+    try std.testing.expect(pad.buttonWithThreshold(.gamepad_left_trigger, 0.5) == false);
 }
 
 test "gamepad ignores non-gamepad button codes" {

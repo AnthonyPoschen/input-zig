@@ -1,5 +1,6 @@
 const std = @import("std");
 const input = @import("input");
+const builtin = @import("builtin");
 
 const c = @cImport({
     @cInclude("sys/mman.h");
@@ -63,14 +64,14 @@ const mouse_probes = [_]MouseProbe{
 };
 
 const gamepad_probes = [_]GamepadProbe{
-    .{ .label = "Face South", .code = .gamepad_face_south },
-    .{ .label = "Face East", .code = .gamepad_face_east },
-    .{ .label = "Face West", .code = .gamepad_face_west },
     .{ .label = "Face North", .code = .gamepad_face_north },
+    .{ .label = "Face East", .code = .gamepad_face_east },
+    .{ .label = "Face South", .code = .gamepad_face_south },
+    .{ .label = "Face West", .code = .gamepad_face_west },
     .{ .label = "Dpad Up", .code = .gamepad_dpad_up },
+    .{ .label = "Dpad Right", .code = .gamepad_dpad_right },
     .{ .label = "Dpad Down", .code = .gamepad_dpad_down },
     .{ .label = "Dpad Left", .code = .gamepad_dpad_left },
-    .{ .label = "Dpad Right", .code = .gamepad_dpad_right },
     .{ .label = "L Shoulder", .code = .gamepad_left_shoulder },
     .{ .label = "R Shoulder", .code = .gamepad_right_shoulder },
     .{ .label = "L Trigger", .code = .gamepad_left_trigger },
@@ -184,7 +185,7 @@ const App = struct {
         if (self.xkb_context) |context| c.xkb_context_unref(context);
 
         if (self.shm_map) |mapping| std.posix.munmap(mapping);
-        if (self.shm_fd) |fd| std.posix.close(fd);
+        if (self.shm_fd) |fd| _ = c.close(fd);
         if (self.display) |display| _ = c.wl_display_disconnect(display);
     }
 
@@ -224,13 +225,13 @@ const App = struct {
     /// Create a shared-memory buffer so the surface can be mapped.
     fn createBuffer(self: *App) !void {
         const fd = try std.posix.memfd_create("input-wayland", 0);
-        errdefer std.posix.close(fd);
+        errdefer _ = c.close(fd);
 
-        try std.posix.ftruncate(fd, buffer_size);
+        if (c.ftruncate(fd, buffer_size) != 0) return error.WaylandBufferCreateFailed;
         const mapping = try std.posix.mmap(
             null,
             buffer_size,
-            std.posix.PROT.READ | std.posix.PROT.WRITE,
+            .{ .READ = true, .WRITE = true },
             .{ .TYPE = .SHARED },
             fd,
             0,
@@ -363,18 +364,21 @@ const App = struct {
             self.pointer_focus,
         });
 
-        try writer.print("mouse position: {d:.1}, {d:.1}\n", .{
-            self.pointer_x,
-            self.pointer_y,
-        });
-        try writer.print("mouse delta:    {d:.1}, {d:.1}\n", .{
-            self.pointer_delta_x,
-            self.pointer_delta_y,
-        });
-        try writer.print("scroll delta:   {d:.1}, {d:.1}\n", .{
-            self.scroll_delta_x,
-            self.scroll_delta_y,
-        });
+        try writer.writeAll("mouse position: ");
+        try writeFixed(writer, @floatCast(self.pointer_x), 10);
+        try writer.writeAll(", ");
+        try writeFixed(writer, @floatCast(self.pointer_y), 10);
+        try writer.writeByte('\n');
+        try writer.writeAll("mouse delta:    ");
+        try writeFixed(writer, @floatCast(self.pointer_delta_x), 10);
+        try writer.writeAll(", ");
+        try writeFixed(writer, @floatCast(self.pointer_delta_y), 10);
+        try writer.writeByte('\n');
+        try writer.writeAll("scroll delta:   ");
+        try writeFixed(writer, @floatCast(self.scroll_delta_x), 10);
+        try writer.writeAll(", ");
+        try writeFixed(writer, @floatCast(self.scroll_delta_y), 10);
+        try writer.writeByte('\n');
         try writer.writeAll("mouse buttons:\n");
 
         for (mouse_probes, 0..) |probe, idx| {
@@ -425,17 +429,19 @@ const App = struct {
 
             const left = gamepad.leftStick();
             const right = gamepad.rightStick();
-            try writer.print(
-                "    left=({d:.2}, {d:.2}) right=({d:.2}, {d:.2}) lt={d:.2} rt={d:.2}\n",
-                .{
-                    left.x,
-                    left.y,
-                    right.x,
-                    right.y,
-                    gamepad.leftTrigger(),
-                    gamepad.rightTrigger(),
-                },
-            );
+            try writer.writeAll("    left=(");
+            try writeFixed(writer, left.x, 100);
+            try writer.writeAll(", ");
+            try writeFixed(writer, left.y, 100);
+            try writer.writeAll(") right=(");
+            try writeFixed(writer, right.x, 100);
+            try writer.writeAll(", ");
+            try writeFixed(writer, right.y, 100);
+            try writer.writeAll(") lt=");
+            try writeFixed(writer, gamepad.leftTrigger(), 100);
+            try writer.writeAll(" rt=");
+            try writeFixed(writer, gamepad.rightTrigger(), 100);
+            try writer.writeByte('\n');
             try self.renderRawGamepadButtons(writer, gamepad);
 
             for (gamepad_probes) |probe| {
@@ -591,12 +597,28 @@ fn waylandPointerButtonIndex(button: u32) ?usize {
     return index;
 }
 
+fn writeFixed(writer: *std.Io.Writer, value: f32, comptime scale: i32) !void {
+    var scaled: i32 = @intFromFloat(value * @as(f32, @floatFromInt(scale)));
+    if (scaled < 0) {
+        try writer.writeByte('-');
+        scaled = -scaled;
+    }
+
+    const whole = @divTrunc(scaled, scale);
+    const fraction: u32 = @intCast(@rem(scaled, scale));
+    if (scale == 10) {
+        try writer.print("{d}.{d}", .{ whole, fraction });
+    } else {
+        try writer.print("{d}.{d:0>2}", .{ whole, fraction });
+    }
+}
+
 /// Run a native Wayland focused-window debug viewer.
-pub fn run(frame_limit: ?usize) !void {
+pub fn run(frame_limit: ?usize, io: std.Io) !void {
     var stdout_buffer: [16384]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&stdout_buffer);
-    var stderr = std.fs.File.stderr().writer(&stderr_buffer);
+    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
+    var stderr = std.Io.File.stderr().writer(io, &stderr_buffer);
     var stdout_writer = &stdout.interface;
     var stderr_writer = &stderr.interface;
     var app = App{};
@@ -633,7 +655,7 @@ pub fn run(frame_limit: ?usize) !void {
             if (frame_count >= limit) return;
         }
 
-        std.Thread.sleep(frame_time_ns);
+        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
     }
 }
 
@@ -641,12 +663,13 @@ pub fn runFocusedInput(
     comptime Context: type,
     context: *Context,
     frame_limit: ?usize,
+    io: std.Io,
     comptime render: fn (*Context, *input.InputSystem, FocusState, *std.Io.Writer, ?usize) anyerror!void,
 ) !void {
     var stdout_buffer: [16384]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&stdout_buffer);
-    var stderr = std.fs.File.stderr().writer(&stderr_buffer);
+    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
+    var stderr = std.Io.File.stderr().writer(io, &stderr_buffer);
     var stdout_writer = &stdout.interface;
     var stderr_writer = &stderr.interface;
     var app = App{};
@@ -686,19 +709,22 @@ pub fn runFocusedInput(
             if (frame_count >= limit) return;
         }
 
-        std.Thread.sleep(frame_time_ns);
+        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
     }
 }
 
 /// Run as a standalone entrypoint for direct Wayland debugging.
-pub fn main() !void {
-    const config = try parseConfig();
-    return run(config.frame_limit);
+pub fn main(init: std.process.Init) !void {
+    const config = try parseConfig(init.minimal.args);
+    return run(config.frame_limit, init.io);
 }
 
 /// Parse the optional bounded-run arguments.
-fn parseConfig() !Config {
-    var args = try std.process.argsWithAllocator(std.heap.page_allocator);
+fn parseConfig(process_args: std.process.Args) !Config {
+    var args = if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        try std.process.Args.Iterator.initAllocator(process_args, std.heap.page_allocator)
+    else
+        std.process.Args.Iterator.init(process_args);
     defer args.deinit();
     var config = Config{};
 
@@ -707,7 +733,7 @@ fn parseConfig() !Config {
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--frames")) {
             const value = args.next() orelse return error.MissingFrameLimit;
-            config.frame_limit = try std.fmt.parseInt(usize, value, 10);
+            config.frame_limit = try parseUsize(value);
             continue;
         }
 
@@ -719,6 +745,16 @@ fn parseConfig() !Config {
     }
 
     return config;
+}
+
+fn parseUsize(text: []const u8) !usize {
+    if (text.len == 0) return error.InvalidFrameLimit;
+    var out: usize = 0;
+    for (text) |byte| {
+        if (byte < '0' or byte > '9') return error.InvalidFrameLimit;
+        out = out * 10 + (byte - '0');
+    }
+    return out;
 }
 
 /// Print setup or runtime failures in plain language.
@@ -938,14 +974,14 @@ fn pointerAxisDiscrete(_: ?*anyopaque, _: ?*c.wl_pointer, _: u32, _: i32) callco
 /// Build the xkb keymap and state from the compositor-provided fd.
 fn keyboardKeymap(data: ?*anyopaque, _: ?*c.wl_keyboard, format: u32, fd: i32, size: u32) callconv(.c) void {
     const app: *App = @ptrCast(@alignCast(data.?));
-    defer std.posix.close(fd);
+    defer _ = c.close(fd);
 
     if (format != c.WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) return;
 
     const mapping = std.posix.mmap(
         null,
         size,
-        std.posix.PROT.READ,
+        .{ .READ = true },
         .{ .TYPE = .PRIVATE },
         fd,
         0,

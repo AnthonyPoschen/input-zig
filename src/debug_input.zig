@@ -78,7 +78,7 @@ pub fn main(init: std.process.Init) !void {
 
     if (builtin.os.tag == .linux) {
         if (input.selectedBackend() == .wayland) {
-            return debug_input_wayland.run(config.frame_limit);
+            return debug_input_wayland.run(config.frame_limit, init.io);
         }
     }
 
@@ -116,7 +116,10 @@ pub fn main(init: std.process.Init) !void {
 
 /// Parse optional frame limit arguments passed after `--`.
 fn parseConfig(process_args: std.process.Args) !Config {
-    var args = try process_args.iterateAllocator(std.heap.page_allocator);
+    var args = if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
+        try std.process.Args.Iterator.initAllocator(process_args, std.heap.page_allocator)
+    else
+        std.process.Args.Iterator.init(process_args);
     defer args.deinit();
     var config = Config{};
 
@@ -125,7 +128,7 @@ fn parseConfig(process_args: std.process.Args) !Config {
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--frames")) {
             const value = args.next() orelse return error.MissingFrameLimit;
-            config.frame_limit = try std.fmt.parseInt(usize, value, 10);
+            config.frame_limit = try parseUsize(value);
             continue;
         }
 
@@ -137,6 +140,16 @@ fn parseConfig(process_args: std.process.Args) !Config {
     }
 
     return config;
+}
+
+fn parseUsize(text: []const u8) !usize {
+    if (text.len == 0) return error.InvalidFrameLimit;
+    var out: usize = 0;
+    for (text) |byte| {
+        if (byte < '0' or byte > '9') return error.InvalidFrameLimit;
+        out = out * 10 + (byte - '0');
+    }
+    return out;
 }
 
 /// Poll the library state and redraw the terminal view.
@@ -170,18 +183,21 @@ fn renderMouse(writer: anytype, mouse: *const input.MouseDevice) !void {
     const position = mouse.position(null);
     const delta = mouse.delta();
     const scroll_delta = mouse.scrollDelta();
-    try writer.print("mouse position: {d:.1}, {d:.1}\n", .{
-        position.x,
-        position.y,
-    });
-    try writer.print("mouse delta:    {d:.1}, {d:.1}\n", .{
-        delta.x,
-        delta.y,
-    });
-    try writer.print("scroll delta:   {d:.1}, {d:.1}\n", .{
-        scroll_delta.x,
-        scroll_delta.y,
-    });
+    try writer.writeAll("mouse position: ");
+    try writeFixed(writer, position.x, 10);
+    try writer.writeAll(", ");
+    try writeFixed(writer, position.y, 10);
+    try writer.writeByte('\n');
+    try writer.writeAll("mouse delta:    ");
+    try writeFixed(writer, delta.x, 10);
+    try writer.writeAll(", ");
+    try writeFixed(writer, delta.y, 10);
+    try writer.writeByte('\n');
+    try writer.writeAll("scroll delta:   ");
+    try writeFixed(writer, scroll_delta.x, 10);
+    try writer.writeAll(", ");
+    try writeFixed(writer, scroll_delta.y, 10);
+    try writer.writeByte('\n');
     try writer.writeAll("mouse buttons:\n");
 
     for (mouse_probes) |probe| {
@@ -213,17 +229,19 @@ fn renderGamepads(writer: anytype, state: *const input.InputSystem) !void {
 
         const left = gamepad.leftStick();
         const right = gamepad.rightStick();
-        try writer.print(
-            "    left=({d:.2}, {d:.2}) right=({d:.2}, {d:.2}) lt={d:.2} rt={d:.2}\n",
-            .{
-                left.x,
-                left.y,
-                right.x,
-                right.y,
-                gamepad.leftTrigger(),
-                gamepad.rightTrigger(),
-            },
-        );
+        try writer.writeAll("    left=(");
+        try writeFixed(writer, left.x, 100);
+        try writer.writeAll(", ");
+        try writeFixed(writer, left.y, 100);
+        try writer.writeAll(") right=(");
+        try writeFixed(writer, right.x, 100);
+        try writer.writeAll(", ");
+        try writeFixed(writer, right.y, 100);
+        try writer.writeAll(") lt=");
+        try writeFixed(writer, gamepad.leftTrigger(), 100);
+        try writer.writeAll(" rt=");
+        try writeFixed(writer, gamepad.rightTrigger(), 100);
+        try writer.writeByte('\n');
         try renderRawGamepadButtons(writer, gamepad);
         try renderGamepadDebugReport(writer, gamepad);
 
@@ -238,6 +256,22 @@ fn renderGamepads(writer: anytype, state: *const input.InputSystem) !void {
                 },
             );
         }
+    }
+}
+
+fn writeFixed(writer: anytype, value: f32, comptime scale: i32) !void {
+    var scaled: i32 = @intFromFloat(value * @as(f32, @floatFromInt(scale)));
+    if (scaled < 0) {
+        try writer.writeByte('-');
+        scaled = -scaled;
+    }
+
+    const whole = @divTrunc(scaled, scale);
+    const fraction: u32 = @intCast(@rem(scaled, scale));
+    if (scale == 10) {
+        try writer.print("{d}.{d}", .{ whole, fraction });
+    } else {
+        try writer.print("{d}.{d:0>2}", .{ whole, fraction });
     }
 }
 

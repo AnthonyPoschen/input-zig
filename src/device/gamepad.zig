@@ -2,9 +2,11 @@ const platform = @import("../platform/mod.zig");
 const common = @import("common.zig");
 const input_code = @import("input_code.zig");
 
+const Axis1d = common.Axis1d;
 const ButtonState = common.ButtonState;
 const InputCode = input_code.InputCode;
 
+pub const default_axis_button_threshold: f32 = 0.5;
 pub const GamepadStick = common.Axis2d;
 
 pub const GamepadIdentity = struct {
@@ -58,6 +60,7 @@ pub const GamepadDevice = struct {
     right_stick_deadzone: f32 = 0,
     left_trigger_deadzone: f32 = 0,
     right_trigger_deadzone: f32 = 0,
+    axis_button_threshold: f32 = default_axis_button_threshold,
 
     pub fn init(slot_index: usize) GamepadDevice {
         var name = [_]u8{0} ** common.max_name_len;
@@ -102,8 +105,7 @@ pub const GamepadDevice = struct {
     }
 
     pub fn down(self: *const GamepadDevice, code: InputCode) bool {
-        const idx = gamepadButtonIndex(code) orelse return false;
-        return self.buttons[idx] == .down;
+        return self.button(code) orelse false;
     }
 
     pub fn up(self: *const GamepadDevice, code: InputCode) bool {
@@ -111,16 +113,18 @@ pub const GamepadDevice = struct {
     }
 
     pub fn pressed(self: *const GamepadDevice, code: InputCode) bool {
-        const idx = gamepadButtonIndex(code) orelse return false;
-        return self.prev_buttons[idx] == .up and self.buttons[idx] == .down;
+        const previous = self.prevButton(code) orelse return false;
+        const current = self.button(code) orelse return false;
+        return !previous and current;
     }
 
     pub fn released(self: *const GamepadDevice, code: InputCode) bool {
-        const idx = gamepadButtonIndex(code) orelse return false;
-        return self.prev_buttons[idx] == .down and self.buttons[idx] == .up;
+        const previous = self.prevButton(code) orelse return false;
+        const current = self.button(code) orelse return false;
+        return previous and !current;
     }
 
-    pub fn axis1d(self: *const GamepadDevice, code: InputCode) ?f32 {
+    pub fn axis1d(self: *const GamepadDevice, code: InputCode) ?Axis1d {
         return switch (code) {
             .gamepad_left_trigger => applyDeadzone(self.left_trigger_value, self.left_trigger_deadzone),
             .gamepad_right_trigger => applyDeadzone(self.right_trigger_value, self.right_trigger_deadzone),
@@ -145,11 +149,27 @@ pub const GamepadDevice = struct {
     }
 
     pub fn button(self: *const GamepadDevice, code: InputCode) ?bool {
+        return self.buttonWithThreshold(code, self.axis_button_threshold);
+    }
+
+    pub fn buttonWithThreshold(self: *const GamepadDevice, code: InputCode, threshold: f32) ?bool {
+        if (self.axisButtonValue(code)) |value| {
+            return value > clamp(threshold, 0, 1);
+        }
+
         const idx = gamepadButtonIndex(code) orelse return null;
         return self.buttons[idx] == .down;
     }
 
     pub fn prevButton(self: *const GamepadDevice, code: InputCode) ?bool {
+        return self.prevButtonWithThreshold(code, self.axis_button_threshold);
+    }
+
+    pub fn prevButtonWithThreshold(self: *const GamepadDevice, code: InputCode, threshold: f32) ?bool {
+        if (self.prevAxisButtonValue(code)) |value| {
+            return value > clamp(threshold, 0, 1);
+        }
+
         const idx = gamepadButtonIndex(code) orelse return null;
         return self.prev_buttons[idx] == .down;
     }
@@ -162,15 +182,15 @@ pub const GamepadDevice = struct {
         return applyDeadzone2d(self.right_stick, self.right_stick_deadzone);
     }
 
-    pub fn leftTrigger(self: *const GamepadDevice) f32 {
+    pub fn leftTrigger(self: *const GamepadDevice) Axis1d {
         return applyDeadzone(self.left_trigger_value, self.left_trigger_deadzone);
     }
 
-    pub fn rightTrigger(self: *const GamepadDevice) f32 {
+    pub fn rightTrigger(self: *const GamepadDevice) Axis1d {
         return applyDeadzone(self.right_trigger_value, self.right_trigger_deadzone);
     }
 
-    pub fn prevAxis1d(self: *const GamepadDevice, code: InputCode) ?f32 {
+    pub fn prevAxis1d(self: *const GamepadDevice, code: InputCode) ?Axis1d {
         return switch (code) {
             .gamepad_left_trigger => applyDeadzone(self.prev_left_trigger_value, self.left_trigger_deadzone),
             .gamepad_right_trigger => applyDeadzone(self.prev_right_trigger_value, self.right_trigger_deadzone),
@@ -202,6 +222,10 @@ pub const GamepadDevice = struct {
         self.right_trigger_deadzone = clamp(deadzone, 0, 1);
     }
 
+    pub fn setAxisButtonThreshold(self: *GamepadDevice, threshold: f32) void {
+        self.axis_button_threshold = clamp(threshold, 0, 1);
+    }
+
     pub fn setDeadzone(self: *GamepadDevice, code: InputCode, deadzone: f32) !void {
         const value = clamp(deadzone, 0, 1);
         switch (code) {
@@ -223,6 +247,40 @@ pub const GamepadDevice = struct {
             .gamepad_right_trigger => self.right_trigger_deadzone = value,
             else => return error.NotAxisCode,
         }
+    }
+
+    fn axisButtonValue(self: *const GamepadDevice, code: InputCode) ?Axis1d {
+        return switch (code) {
+            .gamepad_left_trigger,
+            .gamepad_right_trigger,
+            .gamepad_left_stick_up,
+            .gamepad_left_stick_down,
+            .gamepad_left_stick_left,
+            .gamepad_left_stick_right,
+            .gamepad_right_stick_up,
+            .gamepad_right_stick_down,
+            .gamepad_right_stick_left,
+            .gamepad_right_stick_right,
+            => self.axis1d(code),
+            else => null,
+        };
+    }
+
+    fn prevAxisButtonValue(self: *const GamepadDevice, code: InputCode) ?Axis1d {
+        return switch (code) {
+            .gamepad_left_trigger,
+            .gamepad_right_trigger,
+            .gamepad_left_stick_up,
+            .gamepad_left_stick_down,
+            .gamepad_left_stick_left,
+            .gamepad_left_stick_right,
+            .gamepad_right_stick_up,
+            .gamepad_right_stick_down,
+            .gamepad_right_stick_left,
+            .gamepad_right_stick_right,
+            => self.prevAxis1d(code),
+            else => null,
+        };
     }
 };
 

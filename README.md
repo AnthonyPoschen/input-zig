@@ -148,8 +148,9 @@ const forward = actions.axis1d(&input, "forward");
 const move = actions.axis2d(&input, "move");
 ```
 
-`axis1d` and `axis2d` ignore incompatible codes and add compatible values
-together, clamping the final result to `[-1, 1]`.
+`axis1d` returns `Axis1d` and `axis2d` returns `Axis2d`. They ignore
+incompatible codes and add compatible values together, clamping the final result
+to `[-1, 1]`.
 
 `set2d` is the cleaner path for movement-style actions that combine one or more
 four-way digital sources such as `WASD` with vector sources such as
@@ -158,6 +159,12 @@ component to `[-1, 1]`.
 
 When `down`, `pressed`, or `released` checks an axis code, it uses the action's
 `axis_button_threshold`. The default threshold is `0.5`.
+
+Direct gamepad button queries also treat 1D axis codes as buttons. For example,
+`pad.down(.gamepad_left_trigger)` becomes true when the left trigger is above
+the gamepad's axis button threshold. Use `pad.setAxisButtonThreshold(...)` to
+change the default `0.5` threshold, or `buttonWithThreshold` /
+`prevButtonWithThreshold` when a caller has its own threshold.
 
 Gamepads also have per-axis deadzones for axis queries:
 

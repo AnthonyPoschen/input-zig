@@ -7,6 +7,8 @@ pub const first_gamepad_id = 100;
 
 pub const ButtonState = enum { up, down };
 
+pub const Axis1d = f32;
+
 pub const Axis2d = struct {
     x: f32,
     y: f32,

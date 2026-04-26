@@ -2,6 +2,7 @@ const platform = @import("../platform/mod.zig");
 const common = @import("common.zig");
 const input_code = @import("input_code.zig");
 
+const Axis1d = common.Axis1d;
 const ButtonState = common.ButtonState;
 const InputCode = input_code.InputCode;
 const WindowRect = common.WindowRect;
@@ -91,7 +92,7 @@ pub const MouseDevice = struct {
         return self.prev_buttons[idx] == .down and self.buttons[idx] == .up;
     }
 
-    pub fn axis1d(self: *const MouseDevice, code: InputCode) ?f32 {
+    pub fn axis1d(self: *const MouseDevice, code: InputCode) ?Axis1d {
         return if (self.button(code)) |value| @as(f32, if (value) 1 else 0) else null;
     }
 

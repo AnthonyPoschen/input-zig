@@ -22,8 +22,8 @@ fn detectBackendOnce() LinuxBackend {
     if (cached_detected_backend) |backend| return backend;
 
     const detected: LinuxBackend = blk: {
-        const display_env = std.posix.getenv("DISPLAY");
-        const wayland_env = std.posix.getenv("WAYLAND_DISPLAY");
+        const display_env = std.c.getenv("DISPLAY");
+        const wayland_env = std.c.getenv("WAYLAND_DISPLAY");
 
         // Prefer Wayland when both Wayland and Xwayland are present.
         if (wayland_env != null) break :blk .wayland;
