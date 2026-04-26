@@ -37,6 +37,9 @@ fn configureWaylandDebugLinking(step: *std.Build.Step.Compile, os_tag: std.Targe
     step.root_module.addCSourceFile(.{
         .file = step.step.owner.path("src/platform/xdg-shell-protocol.c"),
     });
+    step.root_module.addCSourceFile(.{
+        .file = step.step.owner.path("src/platform/wayland_shm_wrapper.c"),
+    });
 }
 
 pub fn build(b: *std.Build) void {
