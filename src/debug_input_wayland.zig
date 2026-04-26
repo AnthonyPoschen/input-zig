@@ -713,50 +713,6 @@ pub fn runFocusedInput(
     }
 }
 
-/// Run as a standalone entrypoint for direct Wayland debugging.
-pub fn main(init: std.process.Init) !void {
-    const config = try parseConfig(init.minimal.args);
-    return run(config.frame_limit, init.io);
-}
-
-/// Parse the optional bounded-run arguments.
-fn parseConfig(process_args: std.process.Args) !Config {
-    var args = if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
-        try std.process.Args.Iterator.initAllocator(process_args, std.heap.page_allocator)
-    else
-        std.process.Args.Iterator.init(process_args);
-    defer args.deinit();
-    var config = Config{};
-
-    _ = args.next();
-
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--frames")) {
-            const value = args.next() orelse return error.MissingFrameLimit;
-            config.frame_limit = try parseUsize(value);
-            continue;
-        }
-
-        std.debug.print(
-            "unknown arg '{s}', expected only --frames N\n",
-            .{arg},
-        );
-        return error.InvalidArgument;
-    }
-
-    return config;
-}
-
-fn parseUsize(text: []const u8) !usize {
-    if (text.len == 0) return error.InvalidFrameLimit;
-    var out: usize = 0;
-    for (text) |byte| {
-        if (byte < '0' or byte > '9') return error.InvalidFrameLimit;
-        out = out * 10 + (byte - '0');
-    }
-    return out;
-}
-
 /// Print setup or runtime failures in plain language.
 fn renderError(writer: *std.Io.Writer, err: anyerror) !void {
     try writer.print("wayland focused input failed with {s}\n", .{@errorName(err)});

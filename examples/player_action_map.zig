@@ -67,16 +67,16 @@ fn samplePlayerInput(input: *input_lib.InputSystem, actions: *const input_lib.Ac
     };
 }
 
-fn parseConfig(process_args: std.process.Args) !Config {
-    var args = std.process.Args.Iterator.init(process_args);
-    defer args.deinit();
+fn parseConfigArgv(argv: []const [*:0]u8) !Config {
     var config = Config{};
 
-    _ = args.next();
-
-    while (args.next()) |arg| {
+    var index: usize = 1;
+    while (index < argv.len) : (index += 1) {
+        const arg = std.mem.span(argv[index]);
         if (std.mem.eql(u8, arg, "--frames")) {
-            const value = args.next() orelse return error.MissingFrameLimit;
+            index += 1;
+            if (index >= argv.len) return error.MissingFrameLimit;
+            const value = std.mem.span(argv[index]);
             config.frame_limit = try parseUsize(value);
             continue;
         }
@@ -115,11 +115,22 @@ fn render(writer: *std.Io.Writer, player_input: PlayerInput, frame_limit: ?usize
     try writer.print("pause_press = {any}\n", .{player_input.pause_pressed});
 }
 
-pub fn main(init: std.process.Init) !void {
-    const config = try parseConfig(init.minimal.args);
+pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
+    runMain(@intCast(argc), argv) catch |err| {
+        std.debug.print("player-action-map failed with {s}\n", .{@errorName(err)});
+        return 1;
+    };
+    return 0;
+}
+
+fn runMain(argc: usize, argv: [*][*:0]u8) !void {
+    const config = try parseConfigArgv(argv[0..argc]);
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
     var stdout_buffer: [2048]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(init.io, &stdout_buffer);
+    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
     const writer = &stdout.interface;
 
     var input = input_lib.InputSystem{};
@@ -141,6 +152,6 @@ pub fn main(init: std.process.Init) !void {
             if (frame_count >= limit) return;
         }
 
-        try init.io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
     }
 }

@@ -73,19 +73,30 @@ const gamepad_probes = [_]GamepadProbe{
 };
 
 /// Run a terminal debug viewer that polls and prints input state.
-pub fn main(init: std.process.Init) !void {
-    const config = try parseConfig(init.minimal.args);
+pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
+    return runMain(@intCast(argc), argv) catch |err| {
+        std.debug.print("debug-input failed with {s}\n", .{@errorName(err)});
+        return 1;
+    };
+}
+
+fn runMain(argc: usize, argv: [*][*:0]u8) !c_int {
+    const config = try parseConfigArgv(argv[0..argc]);
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
     if (builtin.os.tag == .linux) {
         if (input.selectedBackend() == .wayland) {
-            return debug_input_wayland.run(config.frame_limit, init.io);
+            try debug_input_wayland.run(config.frame_limit, io);
+            return 0;
         }
     }
 
     var stdout_buffer: [4096]u8 = undefined;
     var stderr_buffer: [1024]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(init.io, &stdout_buffer);
-    var stderr = std.Io.File.stderr().writer(init.io, &stderr_buffer);
+    var stdout = std.Io.File.stdout().writer(io, &stdout_buffer);
+    var stderr = std.Io.File.stderr().writer(io, &stderr_buffer);
     var stdout_writer = &stdout.interface;
     var stderr_writer = &stderr.interface;
     var state = input.InputSystem{};
@@ -107,27 +118,24 @@ pub fn main(init: std.process.Init) !void {
         try stdout_writer.flush();
 
         if (config.frame_limit) |limit| {
-            if (frame_count >= limit) return;
+            if (frame_count >= limit) return 0;
         }
 
-        try init.io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
+        try io.sleep(std.Io.Duration.fromNanoseconds(frame_time_ns), .awake);
     }
 }
 
 /// Parse optional frame limit arguments passed after `--`.
-fn parseConfig(process_args: std.process.Args) !Config {
-    var args = if (builtin.os.tag == .windows or builtin.os.tag == .wasi)
-        try std.process.Args.Iterator.initAllocator(process_args, std.heap.page_allocator)
-    else
-        std.process.Args.Iterator.init(process_args);
-    defer args.deinit();
+fn parseConfigArgv(argv: []const [*:0]u8) !Config {
     var config = Config{};
 
-    _ = args.next();
-
-    while (args.next()) |arg| {
+    var index: usize = 1;
+    while (index < argv.len) : (index += 1) {
+        const arg = std.mem.span(argv[index]);
         if (std.mem.eql(u8, arg, "--frames")) {
-            const value = args.next() orelse return error.MissingFrameLimit;
+            index += 1;
+            if (index >= argv.len) return error.MissingFrameLimit;
+            const value = std.mem.span(argv[index]);
             config.frame_limit = try parseUsize(value);
             continue;
         }
