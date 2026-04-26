@@ -12,7 +12,7 @@ jobs:
       - name: Setup Zig (0.17-dev)
         uses: mlugg/setup-zig@v1
         with:
-          version: master   # 最新的开发版，即 0.17.0-dev
+          version: master   # 最新的开发版，即 0.17.0-dev why
 
       - name: Install dependencies
         run: |
