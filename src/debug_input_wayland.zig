@@ -3,14 +3,7 @@ const input = @import("input");
 const cli_compat = @import("cli_compat");
 const builtin = @import("builtin");
 
-const c = @cImport({
-    @cInclude("sys/mman.h");
-    @cInclude("unistd.h");
-    @cInclude("wayland-client.h");
-    @cInclude("wayland-client-protocol.h");
-    @cInclude("xkbcommon/xkbcommon.h");
-    @cInclude("xdg-shell-client-protocol.h");
-});
+const c = @import("input_zig_wayland_debug_c");
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
 const window_width = 640;
@@ -179,7 +172,7 @@ const App = struct {
         if (self.xdg_surface) |xdg_surface| c.xdg_surface_destroy(xdg_surface);
         if (self.surface) |surface| c.wl_surface_destroy(surface);
         if (self.wm_base) |wm_base| c.xdg_wm_base_destroy(wm_base);
-        if (self.shm) |shm| c.wl_shm_release(shm);
+        if (self.shm) |shm| c.input_zig_wl_shm_release(shm);
         if (self.registry) |registry| c.wl_registry_destroy(registry);
         if (self.xkb_state) |state| c.xkb_state_unref(state);
         if (self.xkb_keymap) |keymap| c.xkb_keymap_unref(keymap);
