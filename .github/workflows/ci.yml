@@ -22,4 +22,4 @@ jobs:
         with:
           version: ${{ matrix.zig }}
       - run: zig build test
-      - run: zig build debug-input -- --frames 1
+      - run: zig build debug-input-build

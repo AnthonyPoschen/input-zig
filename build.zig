@@ -211,6 +211,7 @@ pub fn build(b: *std.Build) void {
 
     const run_tests = b.addRunArtifact(tests);
     const run_debug = b.addRunArtifact(debug_exe);
+    const install_debug = b.addInstallArtifact(debug_exe, .{});
     const install_example = b.addInstallArtifact(example_exe, .{});
     const install_device_polling = b.addInstallArtifact(device_polling_exe, .{});
     const install_save_action_map = b.addInstallArtifact(save_action_map_exe, .{});
@@ -225,6 +226,10 @@ pub fn build(b: *std.Build) void {
     const debug_step = b.step(
         "debug-input",
         "Run terminal input debug viewer",
+    );
+    const debug_build_step = b.step(
+        "debug-input-build",
+        "Build the terminal input debug viewer",
     );
     const example_step = b.step(
         "example-player",
@@ -249,6 +254,7 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(&run_tests.step);
     debug_step.dependOn(&run_debug.step);
+    debug_build_step.dependOn(&install_debug.step);
     example_step.dependOn(&install_example.step);
     device_polling_step.dependOn(&install_device_polling.step);
     save_action_map_step.dependOn(&install_save_action_map.step);
