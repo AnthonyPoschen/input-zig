@@ -9,6 +9,42 @@ pub const Writer = if (has_threaded_io)
 else
     std.fs.File.Writer;
 
+/// Shared CLI options used by example and debug binaries.
+pub const FrameConfig = struct {
+    frame_limit: ?usize = null,
+};
+
+/// Parse the common optional `--frames N` argument.
+pub fn parseFrameConfigArgv(argv: []const [*:0]u8) !FrameConfig {
+    var config = FrameConfig{};
+
+    var index: usize = 1;
+    while (index < argv.len) : (index += 1) {
+        const arg = std.mem.span(argv[index]);
+        if (std.mem.eql(u8, arg, "--frames")) {
+            index += 1;
+            if (index >= argv.len) return error.MissingFrameLimit;
+            const value = std.mem.span(argv[index]);
+            config.frame_limit = try parseUsize(value);
+            continue;
+        }
+
+        return error.InvalidArgument;
+    }
+
+    return config;
+}
+
+fn parseUsize(text: []const u8) !usize {
+    if (text.len == 0) return error.InvalidFrameLimit;
+    var out: usize = 0;
+    for (text) |byte| {
+        if (byte < '0' or byte > '9') return error.InvalidFrameLimit;
+        out = out * 10 + (byte - '0');
+    }
+    return out;
+}
+
 /// Bridge CLI file I/O across changing stdlib APIs.
 const OldRuntime = struct {
     threaded: std.Io.Threaded,

@@ -9,17 +9,20 @@ pub const max_codes_per_action = 8;
 pub const max_codes_per_2d_direction = 4;
 pub const max_vectors_per_action = 4;
 
+/// One input code plus optional analog threshold for button-style queries.
 pub const BoundInput = struct {
     code: device.InputCode,
     activation_threshold: ?f32 = null,
 };
 
+/// Device selection used when attaching common devices from an `InputSystem`.
 pub const AttachOptions = struct {
     keyboard: bool = false,
     mouse: bool = false,
     gamepad_slot: ?usize = null,
 };
 
+/// Directional and vector bindings for a 2D action.
 pub const Action2dBinding = struct {
     left: ?[]const BoundInput = null,
     right: ?[]const BoundInput = null,
@@ -29,8 +32,11 @@ pub const Action2dBinding = struct {
 };
 
 const Query = enum { down, up, pressed, released };
+
+/// Storage and evaluation shape for an action binding.
 pub const ActionKind = enum { codes, axis_2d };
 
+/// Identifies the slot that already owns an input code.
 pub const BindingSlot = enum {
     code,
     left,
@@ -40,12 +46,14 @@ pub const BindingSlot = enum {
     vector,
 };
 
+/// Result returned when a candidate binding conflicts with an existing action.
 pub const BindingConflict = struct {
     action_name: []const u8,
     slot: BindingSlot,
     index: usize = 0,
 };
 
+/// Serializable/editable representation of one action.
 pub const ActionBinding = struct {
     name: []const u8,
     enabled: bool = true,
@@ -58,10 +66,12 @@ pub const ActionBinding = struct {
     vectors: ?[]const BoundInput = null,
 };
 
+/// Fixed-capacity snapshot of all actions in a map.
 pub const ActionBindings = struct {
     count: usize = 0,
     entries: [max_actions]ActionBinding = undefined,
 
+    /// Return the populated snapshot entries.
     pub fn slice(self: *const ActionBindings) []const ActionBinding {
         return self.entries[0..self.count];
     }
@@ -86,11 +96,13 @@ const Action = struct {
     codes: [max_codes_per_action]BoundInput = undefined,
 };
 
+/// Fixed-capacity action binding table for gameplay-style input queries.
 pub const ActionMap = struct {
     devices: [max_devices_per_map]*const device.DeviceView = undefined,
     device_count: usize = 0,
     actions: [max_actions]Action = undefined,
 
+    /// Create an empty action map with all fixed storage initialized.
     pub fn init() ActionMap {
         var out = ActionMap{};
         for (out.actions[0..]) |*action| {
@@ -99,6 +111,7 @@ pub const ActionMap = struct {
         return out;
     }
 
+    /// Attach one device view or concrete device instance to this map.
     pub fn attachDevice(self: *ActionMap, input_device: anytype) !void {
         const view = deviceView(input_device);
         if (self.hasDevice(view)) return;
@@ -107,6 +120,7 @@ pub const ActionMap = struct {
         self.device_count += 1;
     }
 
+    /// Attach common devices from an `InputSystem` in one call.
     pub fn attachDevices(self: *ActionMap, input_system: anytype, options: AttachOptions) !void {
         if (options.keyboard) try self.attachDevice(input_system.keyboard());
         if (options.mouse) try self.attachDevice(input_system.mouse());
@@ -116,6 +130,7 @@ pub const ActionMap = struct {
         }
     }
 
+    /// Detach one device from this map and preserve the order of the rest.
     pub fn detachDevice(self: *ActionMap, input_device: anytype) bool {
         const view = deviceView(input_device);
         var i: usize = 0;
@@ -133,6 +148,7 @@ pub const ActionMap = struct {
         return false;
     }
 
+    /// Set or disable a button/1D/vector-code action.
     pub fn set(self: *ActionMap, name: []const u8, codes: ?[]const BoundInput) !void {
         const action = self.findByName(name) orelse try self.createSlot(name);
 
@@ -149,6 +165,7 @@ pub const ActionMap = struct {
         }
     }
 
+    /// Set a directional 2D action.
     pub fn set2d(self: *ActionMap, name: []const u8, action_2d: Action2dBinding) !void {
         const action = self.findByName(name) orelse try self.createSlot(name);
 
@@ -186,12 +203,14 @@ pub const ActionMap = struct {
         action.kind = .axis_2d;
     }
 
+    /// Replace one action with the same-named binding from `defaults`.
     pub fn reset(self: *ActionMap, name: []const u8, defaults: *const ActionMap) !void {
         const default_action = defaults.findByNameConst(name) orelse return error.ActionNotFound;
         const action = self.findByName(name) orelse try self.createSlot(name);
         copyAction(action, default_action);
     }
 
+    /// Replace all current actions with the actions from `defaults`.
     pub fn resetAll(self: *ActionMap, defaults: *const ActionMap) !void {
         if (self == defaults) return;
 
@@ -206,6 +225,7 @@ pub const ActionMap = struct {
         }
     }
 
+    /// Remove one action by name.
     pub fn remove(self: *ActionMap, name: []const u8) bool {
         var i: usize = 0;
         while (i < self.actions.len) : (i += 1) {
@@ -217,6 +237,7 @@ pub const ActionMap = struct {
         return false;
     }
 
+    /// Count actions that currently occupy a slot.
     pub fn actionCount(self: *const ActionMap) usize {
         var count: usize = 0;
         for (self.actions[0..]) |*action| {
@@ -236,6 +257,7 @@ pub const ActionMap = struct {
         return count;
     }
 
+    /// Copy the current map into a fixed-capacity binding snapshot.
     pub fn snapshot(self: *const ActionMap) ActionBindings {
         var out = ActionBindings{};
         out.count = self.copyBindings(out.entries[0..]);
@@ -254,29 +276,35 @@ pub const ActionMap = struct {
         }
     }
 
+    /// Replace all current actions from a binding slice.
     pub fn importBindings(self: *ActionMap, bindings: []const ActionBinding) !void {
         try self.replaceBindings(bindings);
     }
 
+    /// Replace all current actions from an `ActionBindings` snapshot.
     pub fn loadSnapshot(self: *ActionMap, bindings: *const ActionBindings) !void {
         try self.replaceBindings(bindings.slice());
     }
 
+    /// Return one editable binding snapshot by action name.
     pub fn binding(self: *const ActionMap, name: []const u8) ?ActionBinding {
         const action = self.findByNameConst(name) orelse return null;
         return actionBinding(action);
     }
 
+    /// Create or replace one action from an editable binding snapshot.
     pub fn setBinding(self: *ActionMap, binding_value: ActionBinding) !void {
         try self.applyBinding(binding_value);
     }
 
+    /// Return enabled code bindings for a button/1D/vector action.
     pub fn actionCodes(self: *const ActionMap, name: []const u8) ?[]const BoundInput {
         const action = self.findByNameConst(name) orelse return null;
         if (!action.enabled or action.kind != .codes) return null;
         return action.codes[0..action.code_count];
     }
 
+    /// Return enabled directional bindings for a 2D action.
     pub fn action2d(self: *const ActionMap, name: []const u8) ?Action2dBinding {
         const action = self.findByNameConst(name) orelse return null;
         if (!action.enabled or action.kind != .axis_2d) return null;
@@ -292,6 +320,7 @@ pub const ActionMap = struct {
         };
     }
 
+    /// Find the first enabled action that already uses `code`.
     pub fn findConflict(self: *const ActionMap, code: device.InputCode, ignore_action: ?[]const u8) ?BindingConflict {
         for (self.actions[0..]) |*action| {
             if (!action.used or !action.enabled) continue;
@@ -328,22 +357,27 @@ pub const ActionMap = struct {
         return null;
     }
 
+    /// Return whether any attached device currently activates a code action.
     pub fn down(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
         return self.eval(input_system, name, .down);
     }
 
+    /// Return whether every compatible code is currently inactive.
     pub fn up(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
         return self.eval(input_system, name, .up);
     }
 
+    /// Return whether any attached device activated a code action this update.
     pub fn pressed(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
         return self.eval(input_system, name, .pressed);
     }
 
+    /// Return whether any attached device released a code action this update.
     pub fn released(self: *const ActionMap, input_system: anytype, name: []const u8) bool {
         return self.eval(input_system, name, .released);
     }
 
+    /// Sum matching 1D values across attached devices and clamp to [-1, 1].
     pub fn axis1d(self: *const ActionMap, input_system: anytype, name: []const u8) device.Axis1d {
         const action = self.findByNameConst(name) orelse return 0;
         if (!action.enabled) return 0;
@@ -360,6 +394,7 @@ pub const ActionMap = struct {
         return clamp(out, -1, 1);
     }
 
+    /// Sum matching 2D values across attached devices and clamp each axis.
     pub fn axis2d(self: *const ActionMap, input_system: anytype, name: []const u8) device.Axis2d {
         const action = self.findByNameConst(name) orelse return .{ .x = 0, .y = 0 };
         if (!action.enabled) return .{ .x = 0, .y = 0 };

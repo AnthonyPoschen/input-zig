@@ -6,10 +6,6 @@ const frame_time_ns = 100 * std.time.ns_per_ms;
 const file_name = "action_bindings_round_trip.json";
 const max_file_size = 64 * 1024;
 
-const Config = struct {
-    frame_limit: ?usize = null,
-};
-
 const Status = struct {
     loaded_from_disk: bool = false,
     last_event: []const u8 = "none",
@@ -81,35 +77,6 @@ fn load(runtime: *cli_compat.Runtime, path: []const u8, allocator: std.mem.Alloc
 
     try actions.importBindings(parsed.value);
     return true;
-}
-
-fn parseConfigArgv(argv: []const [*:0]u8) !Config {
-    var config = Config{};
-
-    var index: usize = 1;
-    while (index < argv.len) : (index += 1) {
-        const arg = std.mem.span(argv[index]);
-        if (std.mem.eql(u8, arg, "--frames")) {
-            index += 1;
-            if (index >= argv.len) return error.MissingFrameLimit;
-            const value = std.mem.span(argv[index]);
-            config.frame_limit = try parseUsize(value);
-            continue;
-        }
-        return error.InvalidArgument;
-    }
-
-    return config;
-}
-
-fn parseUsize(text: []const u8) !usize {
-    if (text.len == 0) return error.InvalidFrameLimit;
-    var out: usize = 0;
-    for (text) |byte| {
-        if (byte < '0' or byte > '9') return error.InvalidFrameLimit;
-        out = out * 10 + (byte - '0');
-    }
-    return out;
 }
 
 fn maybeHandleCommands(runtime: *cli_compat.Runtime, actions: *input.ActionMap, defaults: *const input.ActionMap, state: *input.InputSystem, status: *Status) !void {
@@ -194,7 +161,7 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
 }
 
 fn runMain(argc: usize, argv: [*][*:0]u8) !void {
-    const config = try parseConfigArgv(argv[0..argc]);
+    const config = try cli_compat.parseFrameConfigArgv(argv[0..argc]);
     var runtime = cli_compat.Runtime.init();
     defer runtime.deinit();
 

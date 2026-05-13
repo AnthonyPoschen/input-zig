@@ -14,6 +14,7 @@
 - [Action map guide](docs/action-maps.md)
 - [JSON save/load guide](docs/action-map-json.md)
 - [Input code legend](docs/input-codes.md)
+- [Architecture notes](docs/architecture.md)
 
 ## Quick start
 

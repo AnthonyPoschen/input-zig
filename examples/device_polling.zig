@@ -4,39 +4,6 @@ const cli_compat = @import("cli_compat");
 
 const frame_time_ns = 100 * std.time.ns_per_ms;
 
-const Config = struct {
-    frame_limit: ?usize = null,
-};
-
-fn parseConfigArgv(argv: []const [*:0]u8) !Config {
-    var config = Config{};
-
-    var index: usize = 1;
-    while (index < argv.len) : (index += 1) {
-        const arg = std.mem.span(argv[index]);
-        if (std.mem.eql(u8, arg, "--frames")) {
-            index += 1;
-            if (index >= argv.len) return error.MissingFrameLimit;
-            const value = std.mem.span(argv[index]);
-            config.frame_limit = try parseUsize(value);
-            continue;
-        }
-        return error.InvalidArgument;
-    }
-
-    return config;
-}
-
-fn parseUsize(text: []const u8) !usize {
-    if (text.len == 0) return error.InvalidFrameLimit;
-    var out: usize = 0;
-    for (text) |byte| {
-        if (byte < '0' or byte > '9') return error.InvalidFrameLimit;
-        out = out * 10 + (byte - '0');
-    }
-    return out;
-}
-
 fn render(writer: *std.Io.Writer, state: *input.InputSystem, frame_limit: ?usize) !void {
     const keyboard = state.keyboard();
     const mouse = state.mouse();
@@ -83,7 +50,7 @@ pub export fn main(argc: c_int, argv: [*][*:0]u8) c_int {
 }
 
 fn runMain(argc: usize, argv: [*][*:0]u8) !void {
-    const config = try parseConfigArgv(argv[0..argc]);
+    const config = try cli_compat.parseFrameConfigArgv(argv[0..argc]);
     var runtime = cli_compat.Runtime.init();
     defer runtime.deinit();
 

@@ -31,24 +31,29 @@ pub const inputCodeLabel = device.inputCodeLabel;
 pub const inputCodeName = device.inputCodeName;
 pub const parseInputCode = device.parseInputCode;
 
+/// Owns the canonical keyboard, mouse, and stable gamepad slots.
 pub const InputSystem = struct {
     keyboard_device: KeyboardDevice = .{},
     mouse_device: MouseDevice = .{},
     gamepad_devices: [device.max_gamepads]GamepadDevice = initGamepads(),
 
+    /// Return the singleton keyboard device.
     pub fn keyboard(self: anytype) if (@typeInfo(@TypeOf(self)).pointer.is_const) *const KeyboardDevice else *KeyboardDevice {
         return &self.keyboard_device;
     }
 
+    /// Return the singleton mouse device.
     pub fn mouse(self: anytype) if (@typeInfo(@TypeOf(self)).pointer.is_const) *const MouseDevice else *MouseDevice {
         return &self.mouse_device;
     }
 
+    /// Return a stable logical gamepad slot, or null when out of range.
     pub fn gamepad(self: anytype, slot: usize) if (@typeInfo(@TypeOf(self)).pointer.is_const) ?*const GamepadDevice else ?*GamepadDevice {
         if (slot >= self.gamepad_devices.len) return null;
         return &self.gamepad_devices[slot];
     }
 
+    /// Count currently connected gamepad slots.
     pub fn gamepadCount(self: *const InputSystem) usize {
         var count: usize = 0;
         for (self.gamepad_devices[0..]) |*gamepad_device| {
@@ -57,6 +62,7 @@ pub const InputSystem = struct {
         return count;
     }
 
+    /// Copy connected devices of one kind into `out` and return the count.
     pub fn listDevices(self: *const InputSystem, kind: DeviceKind, out: []DeviceView) usize {
         var count: usize = 0;
 
