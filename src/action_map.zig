@@ -80,7 +80,7 @@ pub const ActionBindings = struct {
 const Action = struct {
     used: bool = false,
     enabled: bool = false,
-    name: [max_action_name_len]u8 = [_]u8{0} ** max_action_name_len,
+    name: [max_action_name_len]u8 = @splat(0),
     kind: ActionKind = .codes,
     code_count: usize = 0,
     left_count: usize = 0,
@@ -94,6 +94,27 @@ const Action = struct {
     down_codes: [max_codes_per_2d_direction]BoundInput = undefined,
     vector_codes: [max_vectors_per_action]BoundInput = undefined,
     codes: [max_codes_per_action]BoundInput = undefined,
+
+    fn nameSlice(self: *const Action) []const u8 {
+        return cString(self.name[0..]);
+    }
+
+    fn resetBindingCounts(self: *Action) void {
+        self.code_count = 0;
+        self.left_count = 0;
+        self.right_count = 0;
+        self.up_count = 0;
+        self.down_count = 0;
+        self.vector_count = 0;
+    }
+
+    fn has2dBindings(self: *const Action) bool {
+        return self.left_count != 0 or
+            self.right_count != 0 or
+            self.up_count != 0 or
+            self.down_count != 0 or
+            self.vector_count != 0;
+    }
 };
 
 /// Fixed-capacity action binding table for gameplay-style input queries.
@@ -169,36 +190,7 @@ pub const ActionMap = struct {
     pub fn set2d(self: *ActionMap, name: []const u8, action_2d: Action2dBinding) !void {
         const action = self.findByName(name) orelse try self.createSlot(name);
 
-        action.left_count = try copyBindingCodes(
-            action.left_codes[0..],
-            action_2d.left,
-        );
-        action.right_count = try copyBindingCodes(
-            action.right_codes[0..],
-            action_2d.right,
-        );
-        action.up_count = try copyBindingCodes(
-            action.up_codes[0..],
-            action_2d.up,
-        );
-        action.down_count = try copyBindingCodes(
-            action.down_codes[0..],
-            action_2d.down,
-        );
-        action.vector_count = try copyBindingCodes(
-            action.vector_codes[0..],
-            action_2d.vectors,
-        );
-
-        if (action.left_count == 0 and
-            action.right_count == 0 and
-            action.up_count == 0 and
-            action.down_count == 0 and
-            action.vector_count == 0)
-        {
-            return error.InvalidActionCodes;
-        }
-
+        try copy2dBinding(action, action_2d);
         action.enabled = true;
         action.kind = .axis_2d;
     }
@@ -220,7 +212,8 @@ pub const ActionMap = struct {
 
         for (defaults.actions[0..]) |*default_action| {
             if (!default_action.used) continue;
-            const action = self.findByName(cString(default_action.name[0..])) orelse try self.createSlot(cString(default_action.name[0..]));
+            const name = default_action.nameSlice();
+            const action = self.findByName(name) orelse try self.createSlot(name);
             copyAction(action, default_action);
         }
     }
@@ -230,7 +223,7 @@ pub const ActionMap = struct {
         var i: usize = 0;
         while (i < self.actions.len) : (i += 1) {
             if (!self.actions[i].used) continue;
-            if (!std.mem.eql(u8, cString(self.actions[i].name[0..]), name)) continue;
+            if (!std.mem.eql(u8, self.actions[i].nameSlice(), name)) continue;
             self.actions[i] = .{};
             return true;
         }
@@ -324,7 +317,7 @@ pub const ActionMap = struct {
     pub fn findConflict(self: *const ActionMap, code: device.InputCode, ignore_action: ?[]const u8) ?BindingConflict {
         for (self.actions[0..]) |*action| {
             if (!action.used or !action.enabled) continue;
-            const action_name = cString(action.name[0..]);
+            const action_name = action.nameSlice();
             if (ignore_action) |ignored| {
                 if (std.mem.eql(u8, action_name, ignored)) continue;
             }
@@ -336,21 +329,7 @@ pub const ActionMap = struct {
                     }
                 },
                 .axis_2d => {
-                    if (findCode(action.left_codes[0..action.left_count], code)) |index| {
-                        return .{ .action_name = action_name, .slot = .left, .index = index };
-                    }
-                    if (findCode(action.right_codes[0..action.right_count], code)) |index| {
-                        return .{ .action_name = action_name, .slot = .right, .index = index };
-                    }
-                    if (findCode(action.up_codes[0..action.up_count], code)) |index| {
-                        return .{ .action_name = action_name, .slot = .up, .index = index };
-                    }
-                    if (findCode(action.down_codes[0..action.down_count], code)) |index| {
-                        return .{ .action_name = action_name, .slot = .down, .index = index };
-                    }
-                    if (findCode(action.vector_codes[0..action.vector_count], code)) |index| {
-                        return .{ .action_name = action_name, .slot = .vector, .index = index };
-                    }
+                    if (find2dConflict(action, action_name, code)) |conflict| return conflict;
                 },
             }
         }
@@ -511,7 +490,7 @@ pub const ActionMap = struct {
     fn findByName(self: *ActionMap, name: []const u8) ?*Action {
         for (self.actions[0..]) |*action| {
             if (!action.used) continue;
-            if (std.mem.eql(u8, cString(action.name[0..]), name)) return action;
+            if (std.mem.eql(u8, action.nameSlice(), name)) return action;
         }
         return null;
     }
@@ -519,7 +498,7 @@ pub const ActionMap = struct {
     fn findByNameConst(self: *const ActionMap, name: []const u8) ?*const Action {
         for (self.actions[0..]) |*action| {
             if (!action.used) continue;
-            if (std.mem.eql(u8, cString(action.name[0..]), name)) return action;
+            if (std.mem.eql(u8, action.nameSlice(), name)) return action;
         }
         return null;
     }
@@ -530,12 +509,7 @@ pub const ActionMap = struct {
         const action = self.findByName(action_binding.name) orelse try self.createSlot(action_binding.name);
         action.enabled = action_binding.enabled;
         action.kind = action_binding.kind;
-        action.code_count = 0;
-        action.left_count = 0;
-        action.right_count = 0;
-        action.up_count = 0;
-        action.down_count = 0;
-        action.vector_count = 0;
+        action.resetBindingCounts();
 
         switch (action_binding.kind) {
             .codes => {
@@ -546,19 +520,13 @@ pub const ActionMap = struct {
             },
             .axis_2d => {
                 if (action_binding.enabled) {
-                    action.left_count = try copyBindingCodes(action.left_codes[0..], action_binding.left);
-                    action.right_count = try copyBindingCodes(action.right_codes[0..], action_binding.right);
-                    action.up_count = try copyBindingCodes(action.up_codes[0..], action_binding.up);
-                    action.down_count = try copyBindingCodes(action.down_codes[0..], action_binding.down);
-                    action.vector_count = try copyBindingCodes(action.vector_codes[0..], action_binding.vectors);
-                    if (action.left_count == 0 and
-                        action.right_count == 0 and
-                        action.up_count == 0 and
-                        action.down_count == 0 and
-                        action.vector_count == 0)
-                    {
-                        return error.InvalidActionCodes;
-                    }
+                    try copy2dBinding(action, .{
+                        .left = action_binding.left,
+                        .right = action_binding.right,
+                        .up = action_binding.up,
+                        .down = action_binding.down,
+                        .vectors = action_binding.vectors,
+                    });
                 }
             },
         }
@@ -630,7 +598,7 @@ fn cString(bytes: []const u8) []const u8 {
 }
 
 fn copyAction(out: *Action, source: *const Action) void {
-    const name = cString(source.name[0..]);
+    const name = source.nameSlice();
     out.* = .{ .used = true };
     @memcpy(out.name[0..name.len], name);
     out.enabled = source.enabled;
@@ -678,7 +646,7 @@ fn copyAction(out: *Action, source: *const Action) void {
 
 fn actionBinding(action: *const Action) ActionBinding {
     return .{
-        .name = cString(action.name[0..]),
+        .name = action.nameSlice(),
         .enabled = action.enabled,
         .kind = action.kind,
         .codes = if (action.kind == .codes) sliceIfAny(action.codes[0..], action.code_count) else null,
@@ -688,6 +656,16 @@ fn actionBinding(action: *const Action) ActionBinding {
         .down = if (action.kind == .axis_2d) sliceIfAny(action.down_codes[0..], action.down_count) else null,
         .vectors = if (action.kind == .axis_2d) sliceIfAny(action.vector_codes[0..], action.vector_count) else null,
     };
+}
+
+fn copy2dBinding(action: *Action, binding: Action2dBinding) !void {
+    action.left_count = try copyBindingCodes(action.left_codes[0..], binding.left);
+    action.right_count = try copyBindingCodes(action.right_codes[0..], binding.right);
+    action.up_count = try copyBindingCodes(action.up_codes[0..], binding.up);
+    action.down_count = try copyBindingCodes(action.down_codes[0..], binding.down);
+    action.vector_count = try copyBindingCodes(action.vector_codes[0..], binding.vectors);
+
+    if (!action.has2dBindings()) return error.InvalidActionCodes;
 }
 
 fn copyBindingCodes(dst: []BoundInput, src: ?[]const BoundInput) !usize {
@@ -707,6 +685,25 @@ fn findCode(codes: []const BoundInput, needle: device.InputCode) ?usize {
     for (codes, 0..) |code, index| {
         if (code.code == needle) return index;
     }
+    return null;
+}
+
+fn bindingConflict(
+    action_name: []const u8,
+    slot: BindingSlot,
+    codes: []const BoundInput,
+    needle: device.InputCode,
+) ?BindingConflict {
+    const index = findCode(codes, needle) orelse return null;
+    return .{ .action_name = action_name, .slot = slot, .index = index };
+}
+
+fn find2dConflict(action: *const Action, action_name: []const u8, code: device.InputCode) ?BindingConflict {
+    if (bindingConflict(action_name, .left, action.left_codes[0..action.left_count], code)) |conflict| return conflict;
+    if (bindingConflict(action_name, .right, action.right_codes[0..action.right_count], code)) |conflict| return conflict;
+    if (bindingConflict(action_name, .up, action.up_codes[0..action.up_count], code)) |conflict| return conflict;
+    if (bindingConflict(action_name, .down, action.down_codes[0..action.down_count], code)) |conflict| return conflict;
+    if (bindingConflict(action_name, .vector, action.vector_codes[0..action.vector_count], code)) |conflict| return conflict;
     return null;
 }
 

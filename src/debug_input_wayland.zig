@@ -127,10 +127,10 @@ const App = struct {
     pointer_position_initialized: bool = false,
     scroll_delta_x: f64 = 0,
     scroll_delta_y: f64 = 0,
-    focused_keys: [max_focused_keys]bool = [_]bool{false} ** max_focused_keys,
-    focused_mouse_buttons: [max_focused_mouse_buttons]bool = [_]bool{false} ** max_focused_mouse_buttons,
-    key_states: [key_probes.len]KeyState = [_]KeyState{.{}} ** key_probes.len,
-    button_states: [mouse_probes.len]ButtonState = [_]ButtonState{.{}} ** mouse_probes.len,
+    focused_keys: [max_focused_keys]bool = @splat(false),
+    focused_mouse_buttons: [max_focused_mouse_buttons]bool = @splat(false),
+    key_states: [key_probes.len]KeyState = @splat(.{}),
+    button_states: [mouse_probes.len]ButtonState = @splat(.{}),
     input_state: input.InputSystem = .{},
 
     /// Connect to Wayland globals and prepare the window objects.

@@ -154,7 +154,7 @@ pub fn updateKeyboard(keyboard: *device.KeyboardDevice) !void {
 
             @memset(keyboard.keys[0..], .up);
 
-            var keymap: [32]u8 = [_]u8{0} ** 32;
+            var keymap: [32]u8 = @splat(0);
             _ = c.XQueryKeymap(d, @ptrCast(&keymap));
 
             var keycode: usize = 8;
@@ -232,7 +232,10 @@ const JoystickInfo = struct {
 };
 
 fn joystickPath(index: usize, buffer: []u8) ?[:0]u8 {
-    return std.fmt.bufPrintZ(buffer, "/dev/input/js{d}", .{index}) catch null;
+    const path = std.fmt.bufPrint(buffer, "/dev/input/js{d}", .{index}) catch return null;
+    if (path.len >= buffer.len) return null;
+    buffer[path.len] = 0;
+    return buffer[0..path.len :0];
 }
 
 fn cString(bytes: []const u8) []const u8 {
@@ -242,7 +245,7 @@ fn cString(bytes: []const u8) []const u8 {
 }
 
 fn copyName(src: []const u8) [device.max_name_len]u8 {
-    var out = [_]u8{0} ** device.max_name_len;
+    var out: [device.max_name_len]u8 = @splat(0);
     const count = @min(src.len, out.len);
     @memcpy(out[0..count], src[0..count]);
     return out;
@@ -259,12 +262,12 @@ fn isUsableJoystick(info: JoystickInfo) bool {
 fn queryJoystickInfo(fd: c_int, index: usize) ?JoystickInfo {
     var axes: u8 = 0;
     var buttons: u8 = 0;
-    var raw_name = [_]u8{0} ** 128;
+    var raw_name: [128]u8 = @splat(0);
 
     if (c.ioctl(fd, c.JSIOCGAXES, &axes) < 0) return null;
     if (c.ioctl(fd, c.JSIOCGBUTTONS, &buttons) < 0) return null;
     if (c.ioctl(fd, c.JSIOCGNAME(raw_name.len), &raw_name) < 0) {
-        raw_name = [_]u8{0} ** 128;
+        raw_name = @splat(0);
     }
 
     return .{

@@ -104,7 +104,6 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
     });
     const debug_module = b.createModule(.{
         .root_source_file = b.path("src/debug_input.zig"),
@@ -150,7 +149,6 @@ pub fn build(b: *std.Build) void {
     });
     debug_wayland_module.addIncludePath(b.path("src/platform"));
     addPlatformCImports(b, module, target, optimize);
-    addPlatformCImports(b, test_module, target, optimize);
     if (target.result.os.tag == .linux) {
         addWaylandDebugCImport(b, debug_module, target, optimize);
         addWaylandDebugCImport(b, debug_wayland_module, target, optimize);
@@ -199,7 +197,6 @@ pub fn build(b: *std.Build) void {
     debug_wayland_module.addImport("input", module);
     debug_wayland_module.addImport("cli_compat", cli_compat_module);
 
-    configurePlatformLinking(tests, target.result.os.tag);
     configurePlatformLinking(debug_exe, target.result.os.tag);
     configurePlatformLinking(example_exe, target.result.os.tag);
     configurePlatformLinking(device_polling_exe, target.result.os.tag);

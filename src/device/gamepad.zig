@@ -14,7 +14,7 @@ pub const GamepadIdentity = struct {
     vendor_id: u16 = 0,
     product_id: u16 = 0,
     instance_id: u64 = 0,
-    guid: [16]u8 = [_]u8{0} ** 16,
+    guid: [16]u8 = @splat(0),
 };
 
 fn gamepadButtonIndex(code: InputCode) ?usize {
@@ -44,8 +44,8 @@ fn gamepadButtonIndex(code: InputCode) ?usize {
 pub const GamepadDevice = struct {
     view: common.DeviceView,
     identity: GamepadIdentity = .{},
-    buttons: [common.max_gamepad_buttons]ButtonState = [_]ButtonState{.up} ** common.max_gamepad_buttons,
-    prev_buttons: [common.max_gamepad_buttons]ButtonState = [_]ButtonState{.up} ** common.max_gamepad_buttons,
+    buttons: [common.max_gamepad_buttons]ButtonState = @splat(.up),
+    prev_buttons: [common.max_gamepad_buttons]ButtonState = @splat(.up),
     left_stick: GamepadStick = .{ .x = 0, .y = 0 },
     prev_left_stick: GamepadStick = .{ .x = 0, .y = 0 },
     right_stick: GamepadStick = .{ .x = 0, .y = 0 },
@@ -55,7 +55,7 @@ pub const GamepadDevice = struct {
     right_trigger_value: f32 = 0,
     prev_right_trigger_value: f32 = 0,
     debug_report_id: u8 = 0,
-    debug_report: [32]u8 = [_]u8{0} ** 32,
+    debug_report: [32]u8 = @splat(0),
     debug_report_len: u8 = 0,
     left_stick_deadzone: f32 = default_stick_deadzone,
     right_stick_deadzone: f32 = default_stick_deadzone,
@@ -64,7 +64,7 @@ pub const GamepadDevice = struct {
     activation_threshold: f32 = default_activation_threshold,
 
     pub fn init(slot_index: usize) GamepadDevice {
-        var name = [_]u8{0} ** common.max_name_len;
+        var name: [common.max_name_len]u8 = @splat(0);
         const prefix = "gamepad ";
         @memcpy(name[0..prefix.len], prefix);
         if (slot_index < 10) {
@@ -126,19 +126,19 @@ pub const GamepadDevice = struct {
     }
 
     pub fn axis1d(self: *const GamepadDevice, code: InputCode) ?Axis1d {
-        return switch (code) {
-            .gamepad_left_trigger => applyDeadzone(self.left_trigger_value, self.left_trigger_deadzone),
-            .gamepad_right_trigger => applyDeadzone(self.right_trigger_value, self.right_trigger_deadzone),
-            .gamepad_left_stick_up => positive(applyDeadzone2d(self.left_stick, self.left_stick_deadzone).y),
-            .gamepad_left_stick_down => positive(-applyDeadzone2d(self.left_stick, self.left_stick_deadzone).y),
-            .gamepad_left_stick_left => positive(-applyDeadzone2d(self.left_stick, self.left_stick_deadzone).x),
-            .gamepad_left_stick_right => positive(applyDeadzone2d(self.left_stick, self.left_stick_deadzone).x),
-            .gamepad_right_stick_up => positive(applyDeadzone2d(self.right_stick, self.right_stick_deadzone).y),
-            .gamepad_right_stick_down => positive(-applyDeadzone2d(self.right_stick, self.right_stick_deadzone).y),
-            .gamepad_right_stick_left => positive(-applyDeadzone2d(self.right_stick, self.right_stick_deadzone).x),
-            .gamepad_right_stick_right => positive(applyDeadzone2d(self.right_stick, self.right_stick_deadzone).x),
-            else => if (gamepadButtonIndex(code)) |idx| @as(f32, if (self.buttons[idx] == .down) 1 else 0) else null,
-        };
+        if (axis1dFromState(code, .{
+            .left_stick = self.left_stick,
+            .right_stick = self.right_stick,
+            .left_trigger = self.left_trigger_value,
+            .right_trigger = self.right_trigger_value,
+            .left_stick_deadzone = self.left_stick_deadzone,
+            .right_stick_deadzone = self.right_stick_deadzone,
+            .left_trigger_deadzone = self.left_trigger_deadzone,
+            .right_trigger_deadzone = self.right_trigger_deadzone,
+        })) |value| return value;
+
+        const idx = gamepadButtonIndex(code) orelse return null;
+        return @as(f32, if (self.buttons[idx] == .down) 1 else 0);
     }
 
     pub fn axis2d(self: *const GamepadDevice, code: InputCode) ?common.Axis2d {
@@ -192,19 +192,16 @@ pub const GamepadDevice = struct {
     }
 
     pub fn prevAxis1d(self: *const GamepadDevice, code: InputCode) ?Axis1d {
-        return switch (code) {
-            .gamepad_left_trigger => applyDeadzone(self.prev_left_trigger_value, self.left_trigger_deadzone),
-            .gamepad_right_trigger => applyDeadzone(self.prev_right_trigger_value, self.right_trigger_deadzone),
-            .gamepad_left_stick_up => positive(applyDeadzone2d(self.prev_left_stick, self.left_stick_deadzone).y),
-            .gamepad_left_stick_down => positive(-applyDeadzone2d(self.prev_left_stick, self.left_stick_deadzone).y),
-            .gamepad_left_stick_left => positive(-applyDeadzone2d(self.prev_left_stick, self.left_stick_deadzone).x),
-            .gamepad_left_stick_right => positive(applyDeadzone2d(self.prev_left_stick, self.left_stick_deadzone).x),
-            .gamepad_right_stick_up => positive(applyDeadzone2d(self.prev_right_stick, self.right_stick_deadzone).y),
-            .gamepad_right_stick_down => positive(-applyDeadzone2d(self.prev_right_stick, self.right_stick_deadzone).y),
-            .gamepad_right_stick_left => positive(-applyDeadzone2d(self.prev_right_stick, self.right_stick_deadzone).x),
-            .gamepad_right_stick_right => positive(applyDeadzone2d(self.prev_right_stick, self.right_stick_deadzone).x),
-            else => null,
-        };
+        return axis1dFromState(code, .{
+            .left_stick = self.prev_left_stick,
+            .right_stick = self.prev_right_stick,
+            .left_trigger = self.prev_left_trigger_value,
+            .right_trigger = self.prev_right_trigger_value,
+            .left_stick_deadzone = self.left_stick_deadzone,
+            .right_stick_deadzone = self.right_stick_deadzone,
+            .left_trigger_deadzone = self.left_trigger_deadzone,
+            .right_trigger_deadzone = self.right_trigger_deadzone,
+        });
     }
 
     pub fn setLeftStickDeadzone(self: *GamepadDevice, deadzone: f32) void {
@@ -284,6 +281,36 @@ pub const GamepadDevice = struct {
         };
     }
 };
+
+const AxisState = struct {
+    left_stick: GamepadStick,
+    right_stick: GamepadStick,
+    left_trigger: Axis1d,
+    right_trigger: Axis1d,
+    left_stick_deadzone: f32,
+    right_stick_deadzone: f32,
+    left_trigger_deadzone: f32,
+    right_trigger_deadzone: f32,
+};
+
+fn axis1dFromState(code: InputCode, state: AxisState) ?Axis1d {
+    const left_stick = applyDeadzone2d(state.left_stick, state.left_stick_deadzone);
+    const right_stick = applyDeadzone2d(state.right_stick, state.right_stick_deadzone);
+
+    return switch (code) {
+        .gamepad_left_trigger => applyDeadzone(state.left_trigger, state.left_trigger_deadzone),
+        .gamepad_right_trigger => applyDeadzone(state.right_trigger, state.right_trigger_deadzone),
+        .gamepad_left_stick_up => positive(left_stick.y),
+        .gamepad_left_stick_down => positive(-left_stick.y),
+        .gamepad_left_stick_left => positive(-left_stick.x),
+        .gamepad_left_stick_right => positive(left_stick.x),
+        .gamepad_right_stick_up => positive(right_stick.y),
+        .gamepad_right_stick_down => positive(-right_stick.y),
+        .gamepad_right_stick_left => positive(-right_stick.x),
+        .gamepad_right_stick_right => positive(right_stick.x),
+        else => null,
+    };
+}
 
 fn positive(value: f32) f32 {
     return if (value > 0) value else 0;

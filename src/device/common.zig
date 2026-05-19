@@ -53,7 +53,7 @@ pub const DeviceView = struct {
 };
 
 pub fn fixedName(comptime text: []const u8) [max_name_len]u8 {
-    var out = [_]u8{0} ** max_name_len;
+    var out: [max_name_len]u8 = @splat(0);
     const count = if (text.len < max_name_len) text.len else max_name_len;
     @memcpy(out[0..count], text[0..count]);
     return out;

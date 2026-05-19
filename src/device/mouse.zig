@@ -52,8 +52,8 @@ fn mouseIndex(code: InputCode) ?usize {
 
 pub const MouseDevice = struct {
     view: common.DeviceView = .{ .id = 1, .kind = .mouse, .connected = true, .name = common.fixedName("mouse") },
-    buttons: [common.max_mouse_buttons]ButtonState = [_]ButtonState{.up} ** common.max_mouse_buttons,
-    prev_buttons: [common.max_mouse_buttons]ButtonState = [_]ButtonState{.up} ** common.max_mouse_buttons,
+    buttons: [common.max_mouse_buttons]ButtonState = @splat(.up),
+    prev_buttons: [common.max_mouse_buttons]ButtonState = @splat(.up),
     raw_position: MousePosition = .{ .x = 0, .y = 0 },
     raw_delta: Axis2d = .{ .x = 0, .y = 0 },
     scroll_delta: Axis2d = .{ .x = 0, .y = 0 },

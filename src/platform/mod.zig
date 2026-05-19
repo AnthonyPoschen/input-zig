@@ -1,7 +1,9 @@
 const builtin = @import("builtin");
 const device = @import("../device.zig");
 
-const platform = switch (builtin.os.tag) {
+const platform = if (builtin.is_test)
+    @import("unsupported.zig")
+else switch (builtin.os.tag) {
     .windows => @import("windows.zig"),
     .linux => @import("linux.zig"),
     .macos => @import("macos.zig"),
@@ -15,6 +17,8 @@ pub const Backend = enum {
 };
 
 pub fn selectedBackend() Backend {
+    if (builtin.is_test) return .none;
+
     return switch (builtin.os.tag) {
         .linux => platform.selectedBackend(),
         else => .none,
