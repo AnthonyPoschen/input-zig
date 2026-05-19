@@ -16,6 +16,15 @@
 - [Input code legend](docs/input-codes.md)
 - [Architecture notes](docs/architecture.md)
 
+## Releases
+
+Releases use Calendar Versioning tags in the format `vYYYY.MM.DD`, starting
+with `v2026.05.20`.
+
+The Zig package manifest keeps the same date as a SemVer-compatible value,
+without zero-padded month or day fields. For example, the `v2026.05.20` Git tag
+uses `.version = "2026.5.20"` in `build.zig.zon`.
+
 ## Quick start
 
 ```zig

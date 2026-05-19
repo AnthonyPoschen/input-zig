@@ -1,6 +1,6 @@
 .{
     .name = .input,
-    .version = "0.0.3",
+    .version = "2026.5.20",
     .fingerprint = 0xd82832d7e2cb7d62,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},
