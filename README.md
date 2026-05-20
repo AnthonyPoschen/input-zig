@@ -50,16 +50,36 @@ try actions.set("jump", &.{
     .{ .code = .key_space },
     .{ .code = .gamepad_face_south },
 });
+try actions.set("fire", &.{
+    .{ .code = .mouse_left },
+    .{ .code = .gamepad_right_trigger, .activation_threshold = 0.1 },
+});
 
 while (true) {
     try state.keyboard().update();
     try state.mouse().update();
     if (state.gamepad(0)) |pad| try pad.update();
 
+    const keyboard = state.keyboard();
+    const mouse = state.mouse();
+    const pad = state.gamepad(0) orelse unreachable;
+
+    const raw_jump_key = keyboard.pressed(.key_space);
+    const raw_fire_mouse = mouse.down(.mouse_left);
+    const raw_jump_pad = pad.pressed(.gamepad_face_south);
+    const raw_aim_pad = pad.rightStick();
+
     const move = actions.axis2d(&state, "move");
     const jump_pressed = actions.pressed(&state, "jump");
+    const fire_down = actions.down(&state, "fire");
+
     _ = move;
     _ = jump_pressed;
+    _ = fire_down;
+    _ = raw_jump_key;
+    _ = raw_fire_mouse;
+    _ = raw_jump_pad;
+    _ = raw_aim_pad;
 }
 ```
 

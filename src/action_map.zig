@@ -273,13 +273,12 @@ pub fn ActionMapWithCapacity(comptime action_capacity: usize) type {
         fn replaceBindings(self: *@This(), bindings: []const ActionBinding) !void {
             if (bindings.len > action_capacity) return error.ActionMapFull;
 
-            for (&self.actions) |*action| {
-                action.* = .{};
+            var next = @This().init();
+            for (bindings) |action_binding| {
+                try next.applyBinding(action_binding);
             }
 
-            for (bindings) |action_binding| {
-                try self.applyBinding(action_binding);
-            }
+            self.actions = next.actions;
         }
 
         /// Replace all current actions from a binding slice.
@@ -351,22 +350,22 @@ pub fn ActionMapWithCapacity(comptime action_capacity: usize) type {
 
         /// Return whether any attached device currently activates a code action.
         pub fn down(self: *const @This(), input_system: anytype, name: []const u8) bool {
-            return self.eval(input_system, name, .down);
+            return self.evalAny(input_system, name, .down);
         }
 
         /// Return whether every compatible code is currently inactive.
         pub fn up(self: *const @This(), input_system: anytype, name: []const u8) bool {
-            return self.eval(input_system, name, .up);
+            return self.evalUp(input_system, name);
         }
 
         /// Return whether any attached device activated a code action this update.
         pub fn pressed(self: *const @This(), input_system: anytype, name: []const u8) bool {
-            return self.eval(input_system, name, .pressed);
+            return self.evalAny(input_system, name, .pressed);
         }
 
         /// Return whether any attached device released a code action this update.
         pub fn released(self: *const @This(), input_system: anytype, name: []const u8) bool {
-            return self.eval(input_system, name, .released);
+            return self.evalAny(input_system, name, .released);
         }
 
         /// Sum matching 1D values across attached devices and clamp to [-1, 1].
@@ -411,7 +410,7 @@ pub fn ActionMapWithCapacity(comptime action_capacity: usize) type {
             return out;
         }
 
-        fn eval(self: *const @This(), input_system: anytype, name: []const u8, query: Query) bool {
+        fn evalAny(self: *const @This(), input_system: anytype, name: []const u8, query: Query) bool {
             const action = self.findByNameConst(name) orelse return false;
             if (!action.enabled) return false;
             if (action.kind != .codes) return false;
@@ -420,13 +419,42 @@ pub fn ActionMapWithCapacity(comptime action_capacity: usize) type {
             while (device_index < self.device_count) : (device_index += 1) {
                 var code_index: usize = 0;
                 while (code_index < action.code_count) : (code_index += 1) {
-                    if (deviceCodeQuery(input_system, self.devices[device_index], action.codes[code_index], query)) return true;
+                    if (deviceCodeQuery(
+                        input_system,
+                        self.devices[device_index],
+                        action.codes[code_index],
+                        query,
+                    ) orelse false) return true;
                 }
             }
             return false;
         }
 
-        fn deviceCodeQuery(input_system: anytype, view: *const device.DeviceView, input_binding: BoundInput, query: Query) bool {
+        fn evalUp(self: *const @This(), input_system: anytype, name: []const u8) bool {
+            const action = self.findByNameConst(name) orelse return false;
+            if (!action.enabled) return false;
+            if (action.kind != .codes) return false;
+
+            var any_compatible = false;
+            var device_index: usize = 0;
+            while (device_index < self.device_count) : (device_index += 1) {
+                var code_index: usize = 0;
+                while (code_index < action.code_count) : (code_index += 1) {
+                    const is_up = deviceCodeQuery(
+                        input_system,
+                        self.devices[device_index],
+                        action.codes[code_index],
+                        .up,
+                    ) orelse continue;
+
+                    any_compatible = true;
+                    if (!is_up) return false;
+                }
+            }
+            return any_compatible;
+        }
+
+        fn deviceCodeQuery(input_system: anytype, view: *const device.DeviceView, input_binding: BoundInput, query: Query) ?bool {
             const keyboard = input_system.keyboard();
             const mouse = input_system.mouse();
             const code = input_binding.code;
@@ -450,7 +478,7 @@ pub fn ActionMapWithCapacity(comptime action_capacity: usize) type {
                 );
             }
 
-            return false;
+            return null;
         }
 
         fn deviceAxis1d(input_system: anytype, view: *const device.DeviceView, code: device.InputCode) ?device.Axis1d {
@@ -1193,6 +1221,24 @@ test "action map imports bindings from saved data" {
     try std.testing.expectEqual(@as(f32, 0.5), move.y);
 }
 
+test "action map import keeps existing bindings on invalid input" {
+    var map = ActionMap.init();
+    try map.set("jump", &.{.{ .code = .key_space }});
+
+    const invalid = [_]ActionBinding{
+        .{
+            .name = "move",
+            .kind = .axis_2d,
+            .codes = &.{.{ .code = .key_w }},
+            .left = &.{.{ .code = .key_a }},
+        },
+    };
+
+    try std.testing.expectError(error.InvalidActionBinding, map.importBindings(invalid[0..]));
+    try std.testing.expectEqual(@as(usize, 1), map.actionCount());
+    try std.testing.expectEqual(device.InputCode.key_space, map.actionCodes("jump").?[0].code);
+}
+
 test "action map supports custom action capacities" {
     const SmallActionMap = ActionMapWithCapacity(2);
 
@@ -1263,6 +1309,30 @@ test "action map up ignores incompatible codes" {
     try map.set("move", &.{.{ .code = .gamepad_left_stick }});
 
     try std.testing.expect(!map.up(&input_system, "move"));
+}
+
+test "action map up requires all compatible bindings to be inactive" {
+    const input = @import("input.zig");
+
+    var input_system = input.InputSystem{};
+    var map = ActionMap.init();
+
+    try map.attachDevice(input_system.keyboard());
+    const gamepad = input_system.gamepad(0) orelse return error.MissingGamepadSlot;
+    try map.attachDevice(gamepad);
+    try map.set("jump", &.{
+        .{ .code = .key_space },
+        .{ .code = .gamepad_face_south },
+    });
+
+    try std.testing.expect(map.up(&input_system, "jump"));
+
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_space)] = .down;
+    try std.testing.expect(!map.up(&input_system, "jump"));
+
+    input_system.keyboard_device.keys[@intFromEnum(device.InputCode.key_space)] = .up;
+    gamepad.buttons[0] = .down;
+    try std.testing.expect(!map.up(&input_system, "jump"));
 }
 
 test "gamepad deadzone clips axis query values" {
