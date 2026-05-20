@@ -1,7 +1,7 @@
 pub const max_name_len = 32;
 pub const max_keys = 256;
 pub const max_mouse_buttons = 16;
-pub const max_gamepads = 4;
+pub const max_gamepads = 16;
 pub const max_gamepad_buttons = 32;
 pub const first_gamepad_id = 100;
 
