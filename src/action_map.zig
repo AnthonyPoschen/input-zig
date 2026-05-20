@@ -171,7 +171,7 @@ pub const ActionMap = struct {
 
     /// Set or disable a button/1D/vector-code action.
     pub fn set(self: *ActionMap, name: []const u8, codes: ?[]const BoundInput) !void {
-        const action = self.findByName(name) orelse try self.createSlot(name);
+        const action = self.findByName(name) orelse try self.createAction(name);
 
         if (codes) |value| {
             if (value.len == 0 or value.len > max_codes_per_action) return error.InvalidActionCodes;
@@ -188,7 +188,7 @@ pub const ActionMap = struct {
 
     /// Set a directional 2D action.
     pub fn set2d(self: *ActionMap, name: []const u8, action_2d: Action2dBinding) !void {
-        const action = self.findByName(name) orelse try self.createSlot(name);
+        const action = self.findByName(name) orelse try self.createAction(name);
 
         try copy2dBinding(action, action_2d);
         action.enabled = true;
@@ -198,7 +198,7 @@ pub const ActionMap = struct {
     /// Replace one action with the same-named binding from `defaults`.
     pub fn reset(self: *ActionMap, name: []const u8, defaults: *const ActionMap) !void {
         const default_action = defaults.findByNameConst(name) orelse return error.ActionNotFound;
-        const action = self.findByName(name) orelse try self.createSlot(name);
+        const action = self.findByName(name) orelse try self.createAction(name);
         copyAction(action, default_action);
     }
 
@@ -213,7 +213,7 @@ pub const ActionMap = struct {
         for (defaults.actions[0..]) |*default_action| {
             if (!default_action.used) continue;
             const name = default_action.nameSlice();
-            const action = self.findByName(name) orelse try self.createSlot(name);
+            const action = self.findByName(name) orelse try self.createAction(name);
             copyAction(action, default_action);
         }
     }
@@ -464,7 +464,7 @@ pub const ActionMap = struct {
         return null;
     }
 
-    fn createSlot(self: *ActionMap, name: []const u8) !*Action {
+    fn createAction(self: *ActionMap, name: []const u8) !*Action {
         if (name.len == 0 or name.len > max_action_name_len) return error.InvalidActionName;
         const slot = self.findFree() orelse return error.ActionMapFull;
         slot.* = .{ .used = true };
@@ -506,7 +506,7 @@ pub const ActionMap = struct {
     fn applyBinding(self: *ActionMap, action_binding: ActionBinding) !void {
         try validateActionBinding(action_binding);
         if (action_binding.name.len == 0 or action_binding.name.len > max_action_name_len) return error.InvalidActionName;
-        const action = self.findByName(action_binding.name) orelse try self.createSlot(action_binding.name);
+        const action = self.findByName(action_binding.name) orelse try self.createAction(action_binding.name);
         action.enabled = action_binding.enabled;
         action.kind = action_binding.kind;
         action.resetBindingCounts();
