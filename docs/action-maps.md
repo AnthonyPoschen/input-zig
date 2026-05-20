@@ -48,6 +48,16 @@ try actions.set("pause", &.{
 try actions.set("look", &.{.{ .code = .gamepad_right_stick }});
 ```
 
+`ActionMap` uses fixed storage with `input.default_max_actions` action slots.
+Use `ActionMapWithCapacity` when a game keeps a larger action vocabulary in one
+map:
+
+```zig
+const GameActionMap = input.ActionMapWithCapacity(512);
+
+var actions = GameActionMap.init();
+```
+
 ## Reading actions in a loop
 
 ```zig

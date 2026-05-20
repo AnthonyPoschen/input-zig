@@ -63,6 +63,9 @@ while (true) {
 }
 ```
 
+`ActionMap` defaults to `input.default_max_actions` fixed action slots. For a
+larger single-map game vocabulary, use `input.ActionMapWithCapacity(512)`.
+
 ## Example programs
 
 Build the examples:
